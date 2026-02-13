@@ -2,7 +2,7 @@ import segyio
 import numpy as np
 import os
 
-def normalize_segy(input_filename, output_filename, chunk_size=1000):
+def normalize_segy(input_filename, chunk_size=1000):
     """
     Reads a SEG-Y, calculates global stats (Mean/Std) incrementally,
     and writes a normalized float32 binary volume.
@@ -45,29 +45,11 @@ def normalize_segy(input_filename, output_filename, chunk_size=1000):
     print(f"\n  - Global Mean: {global_mean:.4f}")
     print(f"  - Global Std:  {global_std:.4f}")
     
-    # --- PASS 2: Normalize and Write ---
-    print(f"  - Writing normalized volume to: {output_filename}")
-    
-    # We will write this as a simple binary float32 file (Raw format)
-    # This is much faster to read for the cropper than SEG-Y
-    with open(output_filename, "wb") as f_out:
-         with segyio.open(input_filename, "r", ignore_geometry=True) as src:
-            for i in range(0, n_traces, chunk_size):
-                end = min(i + chunk_size, n_traces)
-                traces = src.trace.raw[i:end].astype(np.float32)
-                
-                # Apply Normalization
-                traces = (traces - global_mean) / global_std
-                
-                # Write to disk
-                traces.tofile(f_out)
-                
-                if i % 10000 == 0:
-                    print(f"    Writing trace {i}/{n_traces}...", end="\r")
+
                     
     print("\nDone!")
 
 # --- Usage ---
 # normalize_segy("Survey_A.sgy", "Survey_A_Normalized.bin")
 # normalize_segy("Survey_B.sgy", "Survey_B_Normalized.bin")
-normalize_segy("raw_seismic_mckinley.sgy", "mckinley_normalized.bin")
+normalize_segy("raw_seismic_mississippi.sgy")
