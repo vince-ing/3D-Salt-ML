@@ -1,4 +1,6 @@
 Mississippi stats
+ - Global Mean: -0.0003
+  - Global Std:  1.1787
 
 Statistics for B-07h-00-LA MERGED [Merged] 1			
 			
