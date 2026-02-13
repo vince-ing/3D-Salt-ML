@@ -1,5 +1,7 @@
 *.sgy
 *.bin
+*.npz
+raw_seismic_mississippi
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
