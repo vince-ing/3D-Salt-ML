@@ -1,0 +1,92 @@
+Mississippi stats
+
+Statistics for B-07h-00-LA MERGED [Merged] 1			
+			
+Axis	Min	Max	Delta
+X	230049.96	406448.32	176398.37
+Y	3036366.47	3212764.83	176398.36
+Depth	-16005.00	5.00	16010.00
+Lat	27°25'32.0160"N	29°02'28.6417"N	1°36'56.6257"
+Long	89°46'16.9051"W	87°56'47.9906"W	1°49'28.9145"
+Trace	-16000.00	0.00	16000.00
+Seismic (template)	-64.03	99.08	163.12
+Amplitude (data)	-64.03	99.08	163.12
+			
+Description	Value		
+Original CRS:	UTM27-16 ("MENTOR:UTM27-16:NAD27 UTM, Zone 16 North, Meter") [SIS,502322]		
+Origin X:	323545.38		
+Origin Y:	3036382.38		
+End first inline X:	230065.87		
+End first inline Y:	3129861.85		
+End first crossline X:	406432.41		
+End first crossline Y:	3119269.44		
+Number of inlines:	5862		
+Number of crosslines:	5289		
+Inline length:	132199.97		
+Inline interval:	20.00		
+Crossline length:	117219.99		
+Crossline interval:	25.00		
+Inline rotation from north:	-45.00		
+Inline range:	10697 to 16558 step 1		
+Crossline range:	8486 to 19062 step 2		
+Vintage:	Seismic Depth 7		
+Seismic type:	3D		
+Number of samples per trace:	1601		
+Number of cells total:	49637592918		
+Inline interval:	19.999998		
+Crossline interval:	24.999994		
+Sample interval:	10		
+Volume value format:	Floating point 32 bit		
+Is storage OK?	Yes		
+Bytes consumed by samples:	184.9 GB		
+Bulk value format:	Floating point 32 bit		
+Bulk has native multires:	Yes		
+Primary direction:	Inlines		
+Secondary direction:	Crosslines		
+Storage type:	ZGY seismic bricked format		
+Compression:	None		
+Flash disk cache:	No		
+Inline disk cache:	No		
+Crossline disk cache:	No		
+Z-slice disk cache:	No		
+File path:	G:\Working\Students\Undergraduate\For_Vince\Petrel\MTC_B07h-00-LA.ptd\a68fa463-df27-456e-917a-db21652be8b7.zgy		
+			
+Statistics for B-07h-00-LA MERGED [Merged] 1 [Crop] 2			
+			
+Axis	Min	Max	Delta
+X	230049.96	406448.32	176398.37
+Y	3036366.47	3212764.83	176398.36
+Depth	-11705.00	-895.00	10810.00
+Lat	27°25'32.0160"N	29°02'28.6417"N	1°36'56.6257"
+Long	89°46'16.9051"W	87°56'47.9906"W	1°49'28.9145"
+Trace	-11700.00	-900.00	10800.00
+Seismic (template)	-64.03	99.08	163.12
+Amplitude (data)	-64.03	99.08	163.12
+			
+Description	Value		
+Original CRS:	UTM27-16 ("MENTOR:UTM27-16:NAD27 UTM, Zone 16 North, Meter") [SIS,502322]		
+Origin X:	323545.38		
+Origin Y:	3036382.38		
+End first inline X:	230065.87		
+End first inline Y:	3129861.85		
+End first crossline X:	406432.41		
+End first crossline Y:	3119269.44		
+Number of inlines:	5862		
+Number of crosslines:	5289		
+Inline length:	132199.97		
+Inline interval:	20.00		
+Crossline length:	117219.99		
+Crossline interval:	25.00		
+Inline rotation from north:	-45.00		
+Inline range:	10697 to 16558 step 1		
+Crossline range:	8486 to 19062 step 2		
+Vintage:	Seismic Depth [virtual cropped] 2		
+Seismic type:	3D		
+Number of samples per trace:	1081		
+Number of cells total:	33515451558		
+Inline interval:	19.999998		
+Crossline interval:	24.999994		
+Sample interval:	10		
+Volume value format:	Floating point 32 bit		
+Is storage OK?	Yes		
+Bytes consumed by samples:	124.9 GB		
