@@ -13,12 +13,12 @@ from tqdm import tqdm
 # 1. CONFIGURATION
 # ==========================================
 # PATHS (Update these!)
-TRAIN_DIR = r"C:\Users\ig-gbds\ML_Data\train"  # Point to your train folder
-VAL_DIR   = r"C:\Users\ig-gbds\ML_Data\val"    # Point to your val folder
+TRAIN_DIR = r"C:\Users\ig-gbds\ML_Data_unpacked\train"  # Point to your train folder
+VAL_DIR   = r"C:\Users\ig-gbds\ML_Data_unpacked\val"    # Point to your val folder
 SAVE_DIR  = "experiments/pilot_run_01"
 
 # HYPERPARAMETERS
-BATCH_SIZE = 4          # Start small (2 or 4) to avoid Out-Of-Memory
+BATCH_SIZE = 6          # Start small (2 or 4) to avoid Out-Of-Memory
 LR = 1e-4               # Learning Rate
 EPOCHS = 20
 #NUM_WORKERS = 4         # Number of CPU cores for loading data
@@ -33,52 +33,38 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 # ==========================================
 class SaltDataset(Dataset):
     def __init__(self, data_dir, augment=False):
+        # Now we look for the exploded files
         self.files = sorted(glob.glob(os.path.join(data_dir, "*.npz")))
         self.augment = augment
-        # Assume 64 cubes per file for speed
-        self.per_file = 64 
 
     def __len__(self):
-        return len(self.files) * self.per_file
+        return len(self.files)
 
     def __getitem__(self, idx):
-        file_idx = idx // self.per_file
-        local_idx = idx % self.per_file
-        
-        # Clamp index just in case
-        if file_idx >= len(self.files): file_idx = len(self.files) - 1
-        
-        fpath = self.files[file_idx]
+        fpath = self.files[idx]
         
         try:
+            # Load the single tiny file
             with np.load(fpath) as data:
-                seismic_batch = data['seismic']
-                label_batch = data['label']
-                
-                if local_idx >= len(seismic_batch): local_idx = 0
-                
-                cube = seismic_batch[local_idx]
-                mask = label_batch[local_idx]
+                cube = data['seismic']
+                mask = data['label']
 
-            # --- Augmentation (Simple Flips) ---
+            # --- Augmentation ---
             if self.augment:
-                # 50% chance to flip Left-Right
-                if np.random.rand() > 0.5:
+                if np.random.rand() > 0.5: # Flip Z
                     cube = np.flip(cube, axis=2)
                     mask = np.flip(mask, axis=2)
-                # 50% chance to flip Front-Back (Crossline)
-                if np.random.rand() > 0.5:
+                if np.random.rand() > 0.5: # Flip X/Y
                     cube = np.flip(cube, axis=1)
                     mask = np.flip(mask, axis=1)
 
-            # Convert to Tensor (Add Channel Dim: [1, D, H, W])
+            # Copy allows negative strides (from flips) to work
             cube = torch.from_numpy(cube.copy()).float().unsqueeze(0)
             mask = torch.from_numpy(mask.copy()).float().unsqueeze(0)
             
             return cube, mask
 
         except Exception as e:
-            print(f"Error loading {fpath}: {e}")
             return torch.zeros((1,128,128,128)), torch.zeros((1,128,128,128))
 
 # ==========================================
@@ -248,8 +234,23 @@ def run_training():
     train_ds = SaltDataset(TRAIN_DIR, augment=True)
     val_ds = SaltDataset(VAL_DIR, augment=False)
     
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
+    train_loader = DataLoader(
+        train_ds, 
+        batch_size=BATCH_SIZE, 
+        shuffle=True, 
+        num_workers=4,          # Try 4 workers
+        pin_memory=True,        # Speed up CPU-to-GPU transfer
+        persistent_workers=True # KEEP WORKERS ALIVE (Crucial for Windows)
+    )
+
+    val_loader = DataLoader(
+        val_ds, 
+        batch_size=BATCH_SIZE, 
+        shuffle=False, 
+        num_workers=2,          # Fewer workers needed for val
+        pin_memory=True,
+        persistent_workers=True
+    )
     
     print(f"Training Data: {len(train_ds)} cubes")
     print(f"Validation Data: {len(val_ds)} cubes")
