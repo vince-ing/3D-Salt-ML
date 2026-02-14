@@ -6,21 +6,20 @@ import random
 import sys
 
 """
-python extract_parallel.py 0 1800
-python extract_parallel.py 1800 3600
-python extract_parallel.py 3600 5391
-py -m extract_parallel.py 3600 5391
+python processmiss.py 0 1954
+py -m processmiss 1954 3908
+py -m processmiss 3908 5862
 """
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-SEISMIC_PATH = "raw_seismic_mckinley.sgy"
-LABEL_PATH = "labelmckinley.sgy"
-OUTPUT_DIR = "processed_data/mckinley"
+SEISMIC_PATH = "raw_seismic_mississippi.sgy"
+LABEL_PATH = "labelmississippi.sgy"
+OUTPUT_DIR = "processed_data/mississippi/"
 
-GLOBAL_MEAN = 0.0003
-GLOBAL_STD = 35.9071
+GLOBAL_MEAN = -0.0003
+GLOBAL_STD = 1.1787
 
 CUBE_SIZE = 128
 STRIDE = 64
@@ -28,9 +27,9 @@ STRIDE = 64
 SALT_THRESHOLD = 0.05
 ROCK_KEEP_PROBABILITY = 0.10
 
-N_INLINES = 5391
-N_CROSSLINES = 7076
-N_SAMPLES = 1001
+N_INLINES = 5862
+N_CROSSLINES = 5289
+N_SAMPLES = 1081
 
 CHUNK_SIZE = 64
 
