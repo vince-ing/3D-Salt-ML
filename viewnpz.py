@@ -1,10 +1,8 @@
 import numpy as np
-import os
 from pathlib import Path
+import zipfile
 
-def check_all_cubes():
-    """Check salt distribution across all extracted cubes."""
-    
+def check_all_cubes_batched():
     for split in ["train", "val", "test"]:
         cube_dir = Path(f"processed_data/mckinley/{split}")
         
@@ -12,54 +10,49 @@ def check_all_cubes():
             print(f"{split.upper()}: Directory not found")
             continue
         
-        cube_files = sorted(cube_dir.glob("*.npz"))
-        
-        if len(cube_files) == 0:
-            print(f"{split.upper()}: No cubes found")
-            continue
-        
-        print(f"\n{split.upper()}: Analyzing {len(cube_files)} cubes...")
+        batch_files = sorted(cube_dir.glob("*.npz"))
+        print(f"\n{split.upper()}: Analyzing {len(batch_files)} batch files...")
         
         salt_ratios = []
         salt_cubes_count = 0
         rock_cubes_count = 0
+        total_cubes = 0
+        bad_files = 0
         
-        for cube_file in cube_files:
-            data = np.load(cube_file)
-            label = data['label']
-            metadata = data['metadata']
+        for batch_file in batch_files:
+            try:
+                data = np.load(batch_file)
+                labels = data["label"]   # (B, D, H, W)
+            except (zipfile.BadZipFile, ValueError, OSError) as e:
+                print(f"  ⚠️ Skipping corrupted file: {batch_file.name}")
+                bad_files += 1
+                continue
             
-            salt_ratio = label.mean()
-            salt_ratios.append(salt_ratio)
+            B = labels.shape[0]
+            total_cubes += B
             
-            # Check if cube has any salt
-            if salt_ratio >= 0.05:
-                salt_cubes_count += 1
-            else:
-                rock_cubes_count += 1
+            batch_ratios = labels.reshape(B, -1).mean(axis=1)
+            salt_ratios.extend(batch_ratios.tolist())
+            
+            salt_cubes_count += (batch_ratios >= 0.05).sum()
+            rock_cubes_count += (batch_ratios < 0.05).sum()
         
-        # Statistics
+        if total_cubes == 0:
+            print("  ❌ No valid cubes found.")
+            continue
+        
         salt_ratios = np.array(salt_ratios)
         
-        print(f"  Total cubes: {len(cube_files)}")
+        print(f"  Total cubes: {total_cubes}")
         print(f"  Salt cubes (≥5% salt): {salt_cubes_count}")
         print(f"  Rock cubes (<5% salt): {rock_cubes_count}")
-        print(f"\n  Salt ratio distribution:")
-        print(f"    Min:  {salt_ratios.min():.4f} ({salt_ratios.min()*100:.2f}%)")
-        print(f"    Max:  {salt_ratios.max():.4f} ({salt_ratios.max()*100:.2f}%)")
-        print(f"    Mean: {salt_ratios.mean():.4f} ({salt_ratios.mean()*100:.2f}%)")
-        print(f"    Median: {np.median(salt_ratios):.4f} ({np.median(salt_ratios)*100:.2f}%)")
+        print(f"  Bad batch files skipped: {bad_files}")
         
-        # Count how many cubes have ANY salt
-        cubes_with_salt = np.sum(salt_ratios > 0)
-        print(f"\n  Cubes with ANY salt (>0%): {cubes_with_salt} ({cubes_with_salt/len(cube_files)*100:.1f}%)")
-        
-        # Histogram
-        print(f"\n  Salt ratio histogram:")
-        bins = [0, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0]
-        hist, _ = np.histogram(salt_ratios, bins=bins)
-        for i in range(len(bins)-1):
-            print(f"    {bins[i]*100:5.1f}%-{bins[i+1]*100:5.1f}%: {hist[i]:6d} cubes")
+        print(f"\n  Salt ratio stats:")
+        print(f"    Min:    {salt_ratios.min():.4f}")
+        print(f"    Max:    {salt_ratios.max():.4f}")
+        print(f"    Mean:   {salt_ratios.mean():.4f}")
+        print(f"    Median: {np.median(salt_ratios):.4f}")
 
 if __name__ == "__main__":
-    check_all_cubes()
+    check_all_cubes_batched()
