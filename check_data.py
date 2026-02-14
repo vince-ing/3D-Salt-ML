@@ -7,7 +7,7 @@ import random
 # ==========================================
 # CONFIGURATION
 # ==========================================
-DATA_DIR = "processed_data/mississippi/train"  # Ensure this path is correct
+DATA_DIR = "processed_data/mckinley/train"  # Ensure this path is correct
 N_FILES_TO_CHECK = 3
 
 def check_data():

@@ -12,7 +12,7 @@ from mpl_toolkits.mplot3d import Axes3D
 DATA_DIR = "processed_data/mckinley/train"
 
 # How many batches to sample (for speed)
-MAX_BATCHES = 359  # Sample 50 batches across the survey
+MAX_BATCHES = 492  # Sample 50 batches across the survey
 
 
 def create_survey_overview():
