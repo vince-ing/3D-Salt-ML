@@ -21,11 +21,11 @@ SAVE_DIR  = "experiments/pilot_run_01"
 BATCH_SIZE = 6          # Start small (2 or 4) to avoid Out-Of-Memory
 LR = 1e-4               # Learning Rate
 EPOCHS = 20
-#NUM_WORKERS = 4         # Number of CPU cores for loading data
+DROPOUT_RATE = 0.2      # Dropout probability (NEW)
+WEIGHT_DECAY = 1e-4     # L2 regularization (NEW)
+EARLY_STOP_PATIENCE = 3 # Epochs to wait before stopping (NEW)
 
 # HARDWARE SETUP
-
-
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # ==========================================
@@ -49,14 +49,24 @@ class SaltDataset(Dataset):
                 cube = data['seismic']
                 mask = data['label']
 
-            # --- Augmentation ---
+            # --- ENHANCED Augmentation ---
             if self.augment:
-                if np.random.rand() > 0.5: # Flip Z
+                # Geometric augmentations
+                if np.random.rand() > 0.5:  # Flip Z
                     cube = np.flip(cube, axis=2)
                     mask = np.flip(mask, axis=2)
-                if np.random.rand() > 0.5: # Flip X/Y
+                if np.random.rand() > 0.5:  # Flip X/Y
                     cube = np.flip(cube, axis=1)
                     mask = np.flip(mask, axis=1)
+                
+                # Amplitude scaling (NEW - prevents overfitting to specific amplitudes)
+                scale = 0.9 + 0.2 * np.random.rand()
+                cube = cube * scale
+                
+                # Gaussian noise (NEW - makes model robust to noise)
+                if np.random.rand() < 0.3:
+                    noise = np.random.normal(0, 0.02, cube.shape)
+                    cube = cube + noise
 
             # Copy allows negative strides (from flips) to work
             cube = torch.from_numpy(cube.copy()).float().unsqueeze(0)
@@ -71,21 +81,24 @@ class SaltDataset(Dataset):
 # 3. MODEL: ResNet-UNet + ASPP (3D)
 # ==========================================
 class ConvBlock(nn.Module):
-    """Basic 3D Conv -> BN -> ReLU"""
-    def __init__(self, in_ch, out_ch):
+    """Basic 3D Conv -> BN -> ReLU with Dropout"""
+    def __init__(self, in_ch, out_ch, p=0.2):
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv3d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm3d(out_ch),
             nn.ReLU(inplace=True),
+            nn.Dropout3d(p),  # Regularization
             nn.Conv3d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm3d(out_ch),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p)   # Regularization
         )
-    def forward(self, x): return self.conv(x)
+    def forward(self, x): 
+        return self.conv(x)
 
 class ASPP(nn.Module):
-    """Atrous Spatial Pyramid Pooling (The Context Extractor)"""
+    """Atrous Spatial Pyramid Pooling with Dropout (The Context Extractor)"""
     def __init__(self, in_ch, out_ch):
         super().__init__()
         # Dilations: 1 (normal), 2 (small gap), 4 (medium gap)
@@ -93,7 +106,13 @@ class ASPP(nn.Module):
         self.b0 = nn.Sequential(nn.Conv3d(in_ch, out_ch, 1, bias=False), nn.BatchNorm3d(out_ch), nn.ReLU())
         self.b1 = nn.Sequential(nn.Conv3d(in_ch, out_ch, 3, padding=2, dilation=2, bias=False), nn.BatchNorm3d(out_ch), nn.ReLU())
         self.b2 = nn.Sequential(nn.Conv3d(in_ch, out_ch, 3, padding=4, dilation=4, bias=False), nn.BatchNorm3d(out_ch), nn.ReLU())
-        self.project = nn.Sequential(nn.Conv3d(out_ch*3, out_ch, 1, bias=False), nn.BatchNorm3d(out_ch), nn.ReLU())
+        
+        self.project = nn.Sequential(
+            nn.Conv3d(out_ch*3, out_ch, 1, bias=False), 
+            nn.BatchNorm3d(out_ch), 
+            nn.ReLU(),
+            nn.Dropout3d(0.3)  # Higher dropout in bottleneck (NEW)
+        )
 
     def forward(self, x):
         x0 = self.b0(x)
@@ -102,16 +121,16 @@ class ASPP(nn.Module):
         return self.project(torch.cat([x0, x1, x2], dim=1))
 
 class SaltModel3D(nn.Module):
-    def __init__(self):
+    def __init__(self, dropout_rate=0.2):
         super().__init__()
         # Encoder (Downsampling)
-        self.enc1 = ConvBlock(1, 16)
+        self.enc1 = ConvBlock(1, 16, p=dropout_rate)
         self.pool1 = nn.MaxPool3d(2)
         
-        self.enc2 = ConvBlock(16, 32)
+        self.enc2 = ConvBlock(16, 32, p=dropout_rate)
         self.pool2 = nn.MaxPool3d(2)
         
-        self.enc3 = ConvBlock(32, 64)
+        self.enc3 = ConvBlock(32, 64, p=dropout_rate)
         self.pool3 = nn.MaxPool3d(2)
         
         # Bridge (ASPP)
@@ -119,13 +138,13 @@ class SaltModel3D(nn.Module):
         
         # Decoder (Upsampling)
         self.up3 = nn.ConvTranspose3d(64, 64, kernel_size=2, stride=2)
-        self.dec3 = ConvBlock(64+64, 64) # 64 from up3 + 64 from enc3
+        self.dec3 = ConvBlock(64+64, 64, p=dropout_rate) # 64 from up3 + 64 from enc3
         
         self.up2 = nn.ConvTranspose3d(64, 32, kernel_size=2, stride=2)
-        self.dec2 = ConvBlock(32+32, 32)
+        self.dec2 = ConvBlock(32+32, 32, p=dropout_rate)
         
         self.up1 = nn.ConvTranspose3d(32, 16, kernel_size=2, stride=2)
-        self.dec1 = ConvBlock(16+16, 16)
+        self.dec1 = ConvBlock(16+16, 16, p=dropout_rate)
         
         self.final = nn.Conv3d(16, 1, kernel_size=1)
 
@@ -160,16 +179,22 @@ class SaltModel3D(nn.Module):
 # 4. LOSS & UTILS
 # ==========================================
 class DiceBCELoss(nn.Module):
-    def __init__(self, weight=None, size_average=True):
+    def __init__(self, pos_weight=2.0):
         super(DiceBCELoss, self).__init__()
+        self.pos_weight = pos_weight
 
     def forward(self, inputs, targets, smooth=1):
         # inputs = raw logits (no sigmoid applied yet)
         # targets = 0 or 1 (ground truth)
         
-        # 1. BCE with Logits (This is the Safe/Fused version for Mixed Precision)
-        # It applies sigmoid internally in a numerically stable way
-        bce = F.binary_cross_entropy_with_logits(inputs, targets, reduction='mean')
+        # 1. BCE with Logits + Class Imbalance Handling (NEW)
+        # pos_weight gives higher weight to salt class
+        bce = F.binary_cross_entropy_with_logits(
+            inputs, 
+            targets, 
+            pos_weight=torch.tensor([self.pos_weight], device=inputs.device),
+            reduction='mean'
+        )
         
         # 2. Dice Loss (We still need probabilities for Dice, so we apply sigmoid here)
         inputs_prob = torch.sigmoid(inputs)
@@ -182,74 +207,13 @@ class DiceBCELoss(nn.Module):
         
         return bce + dice_loss
 
-def save_visual_report(model, loader, epoch, device):
-    model.eval()
-    
-    target_image = None
-    target_mask = None
-    
-    # 1. Hunt for a batch that actually has salt
-    print("  > Hunting for a visual example with salt...")
-    with torch.no_grad():
-        for i, (images, masks) in enumerate(loader):
-            # Check if there is any salt in this batch (sum > 100 pixels)
-            if masks.sum() > 100: 
-                target_image = images
-                target_mask = masks
-                print(f"  > Found salt in batch {i}!")
-                break
-        
-        # Fallback: If no salt found in entire validation set (unlikely), just take the first one
-        if target_image is None:
-            print("  > Warning: No salt found in validation set. Showing empty rock.")
-            target_image, target_mask = next(iter(loader))
-
-        # Move to GPU
-        img = target_image.to(device)
-        mask = target_mask.to(device)
-
-        # 2. Run Inference
-        output = model(img)
-        pred = torch.sigmoid(output)  # Convert logits to probability (0-1)
-        
-        # 3. Create the Plot (Slice 64 - Middle of the cube)
-        # We take the first item in the batch [0]
-        # We take the middle slice in depth [:, 64, :, :]
-        slice_idx = 64
-        
-        input_slice = img[0, 0, slice_idx, :, :].cpu().numpy()
-        mask_slice  = mask[0, 0, slice_idx, :, :].cpu().numpy()
-        pred_slice  = pred[0, 0, slice_idx, :, :].cpu().numpy()
-        
-        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-        
-        # Input Seismic
-        ax[0].imshow(input_slice, cmap='gray')
-        ax[0].set_title(f"Input Seismic (Epoch {epoch})")
-        
-        # Ground Truth
-        ax[1].imshow(mask_slice, cmap='gray')
-        ax[1].set_title("Ground Truth (Target)")
-        
-        # Model Prediction
-        # We overlay the prediction in Red (with transparency)
-        ax[2].imshow(input_slice, cmap='gray')
-        ax[2].imshow(pred_slice, cmap='jet', alpha=0.5) # Jet heatmap over seismic
-        ax[2].set_title(f"Prediction (Prob > 0.5)")
-        
-        # Save
-        os.makedirs("visual_reports", exist_ok=True)
-        plt.savefig(f"visual_reports/epoch_{epoch}.png")
-        plt.close()
-
 # ==========================================
 # 5. TRAINING LOOP
 # ==========================================
 def run_training():
     # Load Data
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Running on: {DEVICE}") # This should only print ONCE now
-    NUM_WORKERS = 0
+    print(f"Running on: {DEVICE}")
 
     train_ds = SaltDataset(TRAIN_DIR, augment=True)
     val_ds = SaltDataset(VAL_DIR, augment=False)
@@ -275,14 +239,23 @@ def run_training():
     print(f"Training Data: {len(train_ds)} cubes")
     print(f"Validation Data: {len(val_ds)} cubes")
 
-    # Init Model
-    model = SaltModel3D().to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    criterion = DiceBCELoss()
+    # Init Model with dropout
+    model = SaltModel3D(dropout_rate=DROPOUT_RATE).to(DEVICE)
+    
+    # Optimizer with weight decay (L2 regularization) (NEW)
+    optimizer = torch.optim.Adam(
+        model.parameters(), 
+        lr=LR, 
+        weight_decay=WEIGHT_DECAY  # Penalizes large weights
+    )
+    
+    # Loss with class imbalance handling (NEW)
+    criterion = DiceBCELoss(pos_weight=2.0)  # 2x weight for salt class
     scaler = torch.amp.GradScaler('cuda') # Mixed Precision
 
-    # Loop
+    # Early stopping tracking (NEW)
     best_loss = 999.0
+    patience_counter = 0
     
     for epoch in range(EPOCHS):
         print(f"\nEpoch {epoch+1}/{EPOCHS}")
@@ -322,14 +295,25 @@ def run_training():
         avg_val = val_loss / len(val_loader)
         print(f"Train Loss: {avg_train:.4f} | Val Loss: {avg_val:.4f}")
         
-        # Save Checkpoint
+        # Save Checkpoint & Early Stopping Logic (UPDATED)
         if avg_val < best_loss:
             best_loss = avg_val
+            patience_counter = 0  # Reset counter
             torch.save(model.state_dict(), f"{SAVE_DIR}/best_model.pth")
             print(">>> Saved Best Model!")
+        else:
+            patience_counter += 1
+            print(f">>> No improvement ({patience_counter}/{EARLY_STOP_PATIENCE})")
+            if patience_counter >= EARLY_STOP_PATIENCE:
+                print("Early stopping triggered - validation loss stopped improving")
+                break
             
-        # Visualize
-        save_visual_report(model, val_loader, epoch+1, DEVICE)
+
+    
+    print("\n" + "="*50)
+    print(f"Training Complete! Best validation loss: {best_loss:.4f}")
+    print(f"Model saved to: {SAVE_DIR}/best_model.pth")
+    print("="*50)
 
 if __name__ == "__main__":
     run_training()
