@@ -182,13 +182,11 @@ class DiceBCELoss(nn.Module):
         
         return bce + dice_loss
 
-def save_visual_report(model, loader, epoch):
-    """Saves a PNG showing Input vs Truth vs Pred"""
+def save_visual_report(model, loader, epoch, device):  # Add device here
     model.eval()
     with torch.no_grad():
-        # Grab one batch
         img, mask = next(iter(loader))
-        img = img.to(DEVICE)
+        img = img.to(device)
         
         # Predict
         pred = model(img)
@@ -309,7 +307,7 @@ def run_training():
             print(">>> Saved Best Model!")
             
         # Visualize
-        save_visual_report(model, val_loader, epoch+1)
+        save_visual_report(model, val_loader, epoch+1, DEVICE)
 
 if __name__ == "__main__":
     run_training()

@@ -7,6 +7,8 @@ Activate .\dl_env\Scripts\Activate.ps1
 install pytorch
 pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
+cd G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection
+
 
 
 Mississippi stats
