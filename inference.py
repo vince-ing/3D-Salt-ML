@@ -23,24 +23,28 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ==========================================
-# MODEL ARCHITECTURE (Copy from training script)
+# MODEL ARCHITECTURE (UPDATED - Must match training script!)
 # ==========================================
 class ConvBlock(nn.Module):
-    def __init__(self, in_ch, out_ch):
+    """Basic 3D Conv -> BN -> ReLU with Dropout"""
+    def __init__(self, in_ch, out_ch, p=0.2):
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv3d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm3d(out_ch),
             nn.ReLU(inplace=True),
+            nn.Dropout3d(p),  # Dropout layer
             nn.Conv3d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm3d(out_ch),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Dropout3d(p)   # Dropout layer
         )
     def forward(self, x): 
         return self.conv(x)
 
 
 class ASPP(nn.Module):
+    """Atrous Spatial Pyramid Pooling with Dropout"""
     def __init__(self, in_ch, out_ch):
         super().__init__()
         self.b0 = nn.Sequential(
@@ -61,7 +65,8 @@ class ASPP(nn.Module):
         self.project = nn.Sequential(
             nn.Conv3d(out_ch*3, out_ch, 1, bias=False), 
             nn.BatchNorm3d(out_ch), 
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Dropout3d(0.3)  # Dropout in bottleneck
         )
 
     def forward(self, x):
@@ -72,16 +77,16 @@ class ASPP(nn.Module):
 
 
 class SaltModel3D(nn.Module):
-    def __init__(self):
+    def __init__(self, dropout_rate=0.2):
         super().__init__()
         # Encoder
-        self.enc1 = ConvBlock(1, 16)
+        self.enc1 = ConvBlock(1, 16, p=dropout_rate)
         self.pool1 = nn.MaxPool3d(2)
         
-        self.enc2 = ConvBlock(16, 32)
+        self.enc2 = ConvBlock(16, 32, p=dropout_rate)
         self.pool2 = nn.MaxPool3d(2)
         
-        self.enc3 = ConvBlock(32, 64)
+        self.enc3 = ConvBlock(32, 64, p=dropout_rate)
         self.pool3 = nn.MaxPool3d(2)
         
         # Bridge
@@ -89,13 +94,13 @@ class SaltModel3D(nn.Module):
         
         # Decoder
         self.up3 = nn.ConvTranspose3d(64, 64, kernel_size=2, stride=2)
-        self.dec3 = ConvBlock(64+64, 64)
+        self.dec3 = ConvBlock(64+64, 64, p=dropout_rate)
         
         self.up2 = nn.ConvTranspose3d(64, 32, kernel_size=2, stride=2)
-        self.dec2 = ConvBlock(32+32, 32)
+        self.dec2 = ConvBlock(32+32, 32, p=dropout_rate)
         
         self.up1 = nn.ConvTranspose3d(32, 16, kernel_size=2, stride=2)
-        self.dec1 = ConvBlock(16+16, 16)
+        self.dec1 = ConvBlock(16+16, 16, p=dropout_rate)
         
         self.final = nn.Conv3d(16, 1, kernel_size=1)
 
@@ -336,36 +341,6 @@ def visualize_prediction(seismic, ground_truth, prediction, metrics, output_path
             ax4.legend(handles=legend_elements, loc='upper right', 
                       fontsize=8, framealpha=0.9)
     
-    # Add comprehensive metrics text box
-    metrics_text = (
-        f"PERFORMANCE METRICS:\n"
-        f"{'='*30}\n"
-        f"IoU (Overlap):        {metrics['iou']:.3f}\n"
-        f"Dice Coefficient:     {metrics['dice']:.3f}\n"
-        f"Boundary F1:          {metrics['boundary_f1']:.3f}\n"
-        f"\n"
-        f"SALT RATIOS:\n"
-        f"{'='*30}\n"
-        f"Ground Truth:         {metrics['gt_salt_ratio']:.1%}\n"
-        f"Predicted:            {metrics['pred_salt_ratio']:.1%}\n"
-        f"Error:                {abs(metrics['pred_salt_ratio'] - metrics['gt_salt_ratio']):.1%}\n"
-        f"\n"
-        f"INTERPRETATION:\n"
-        f"{'='*30}\n"
-        f"IoU > 0.85:  Excellent\n"
-        f"IoU > 0.75:  Good\n"
-        f"IoU > 0.65:  Acceptable\n"
-        f"IoU < 0.65:  Needs improvement"
-    )
-    
-    fig.text(0.99, 0.02, metrics_text,
-            fontsize=10,
-            verticalalignment='bottom',
-            horizontalalignment='right',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.95, 
-                     edgecolor='black', linewidth=2),
-            family='monospace')
-    
     plt.suptitle('3D Salt Segmentation Inference Results', 
                 fontsize=18, fontweight='bold', y=0.98)
     
@@ -393,17 +368,18 @@ def run_inference():
     
     # 1. Load Model
     print("Loading model...")
-    model = SaltModel3D().to(DEVICE)
+    model = SaltModel3D(dropout_rate=0.2).to(DEVICE)  # IMPORTANT: Must match training dropout
     
     try:
         state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
         model.load_state_dict(state_dict)
-        print("✅ Model loaded successfully\n")
+        print("✅ Model loaded successfully")
+        print("   Note: Dropout layers are automatically disabled during inference (eval mode)\n")
     except Exception as e:
         print(f"❌ Failed to load model: {e}")
         return
     
-    model.eval()
+    model.eval()  # CRITICAL: Sets dropout to eval mode (disabled)
     
     # 2. Find salt-rich cubes
     salt_cubes = find_salt_cubes(VAL_DIR, min_salt_ratio=MIN_SALT_RATIO)
