@@ -182,43 +182,65 @@ class DiceBCELoss(nn.Module):
         
         return bce + dice_loss
 
-def save_visual_report(model, loader, epoch, device):  # Add device here
+def save_visual_report(model, loader, epoch, device):
     model.eval()
+    
+    target_image = None
+    target_mask = None
+    
+    # 1. Hunt for a batch that actually has salt
+    print("  > Hunting for a visual example with salt...")
     with torch.no_grad():
-        img, mask = next(iter(loader))
-        img = img.to(device)
+        for i, (images, masks) in enumerate(loader):
+            # Check if there is any salt in this batch (sum > 100 pixels)
+            if masks.sum() > 100: 
+                target_image = images
+                target_mask = masks
+                print(f"  > Found salt in batch {i}!")
+                break
         
-        # Predict
-        pred = model(img)
-        pred = torch.sigmoid(pred)
+        # Fallback: If no salt found in entire validation set (unlikely), just take the first one
+        if target_image is None:
+            print("  > Warning: No salt found in validation set. Showing empty rock.")
+            target_image, target_mask = next(iter(loader))
+
+        # Move to GPU
+        img = target_image.to(device)
+        mask = target_mask.to(device)
+
+        # 2. Run Inference
+        output = model(img)
+        pred = torch.sigmoid(output)  # Convert logits to probability (0-1)
         
-        # Convert to CPU numpy
-        img = img[0, 0].cpu().numpy()       # First cube, channel 0
-        mask = mask[0, 0].cpu().numpy()
-        pred = pred[0, 0].cpu().numpy()
+        # 3. Create the Plot (Slice 64 - Middle of the cube)
+        # We take the first item in the batch [0]
+        # We take the middle slice in depth [:, 64, :, :]
+        slice_idx = 64
         
-        # Pick middle slice
-        mid = img.shape[0] // 2
+        input_slice = img[0, 0, slice_idx, :, :].cpu().numpy()
+        mask_slice  = mask[0, 0, slice_idx, :, :].cpu().numpy()
+        pred_slice  = pred[0, 0, slice_idx, :, :].cpu().numpy()
         
         fig, ax = plt.subplots(1, 3, figsize=(15, 5))
         
-        # 1. Seismic
-        ax[0].imshow(img[mid,:,:].T, cmap='gray')
-        ax[0].set_title(f"Seismic (Epoch {epoch})")
+        # Input Seismic
+        ax[0].imshow(input_slice, cmap='gray')
+        ax[0].set_title(f"Input Seismic (Epoch {epoch})")
         
-        # 2. Truth
-        ax[1].imshow(mask[mid,:,:].T, cmap='jet', interpolation='nearest')
-        ax[1].set_title("Ground Truth")
+        # Ground Truth
+        ax[1].imshow(mask_slice, cmap='gray')
+        ax[1].set_title("Ground Truth (Target)")
         
-        # 3. Prediction
-        ax[2].imshow(img[mid,:,:].T, cmap='gray')
-        ax[2].imshow(pred[mid,:,:].T, cmap='jet', alpha=0.5, vmin=0, vmax=1)
-        ax[2].set_title("AI Prediction")
+        # Model Prediction
+        # We overlay the prediction in Red (with transparency)
+        ax[2].imshow(input_slice, cmap='gray')
+        ax[2].imshow(pred_slice, cmap='jet', alpha=0.5) # Jet heatmap over seismic
+        ax[2].set_title(f"Prediction (Prob > 0.5)")
         
-        plt.tight_layout()
-        plt.savefig(f"{SAVE_DIR}/epoch_{epoch}_check.png")
+        # Save
+        os.makedirs("visual_reports", exist_ok=True)
+        plt.savefig(f"visual_reports/epoch_{epoch}.png")
         plt.close()
-    model.train()
 
 # ==========================================
 # 5. TRAINING LOOP
