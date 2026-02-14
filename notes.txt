@@ -1,3 +1,14 @@
+To set up pytorch
+create venv
+python -m venv C:\Users\ig-gbds\dl_env
+
+Activate .\dl_env\Scripts\Activate.ps1
+
+install pytorch
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+
+
 Mississippi stats
  - Global Mean: -0.0003
   - Global Std:  1.1787

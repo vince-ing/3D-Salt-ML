@@ -6,26 +6,25 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from torch.cuda.amp import autocast, GradScaler
+import torch.amp
 from tqdm import tqdm
 
 # ==========================================
 # 1. CONFIGURATION
 # ==========================================
 # PATHS (Update these!)
-TRAIN_DIR = "processed_data/mississippi/train"  # Point to your train folder
-VAL_DIR   = "processed_data/mississippi/val"    # Point to your val folder
+TRAIN_DIR = r"C:\Users\ig-gbds\ML_Data\train"  # Point to your train folder
+VAL_DIR   = r"C:\Users\ig-gbds\ML_Data\val"    # Point to your val folder
 SAVE_DIR  = "experiments/pilot_run_01"
 
 # HYPERPARAMETERS
 BATCH_SIZE = 4          # Start small (2 or 4) to avoid Out-Of-Memory
 LR = 1e-4               # Learning Rate
 EPOCHS = 20
-NUM_WORKERS = 4         # Number of CPU cores for loading data
+#NUM_WORKERS = 4         # Number of CPU cores for loading data
 
 # HARDWARE SETUP
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Running on: {DEVICE}")
+
 
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -179,17 +178,21 @@ class DiceBCELoss(nn.Module):
         super(DiceBCELoss, self).__init__()
 
     def forward(self, inputs, targets, smooth=1):
-        # Flatten
-        inputs = torch.sigmoid(inputs)
-        inputs = inputs.view(-1)
-        targets = targets.view(-1)
+        # inputs = raw logits (no sigmoid applied yet)
+        # targets = 0 or 1 (ground truth)
         
-        # Dice
-        intersection = (inputs * targets).sum()
-        dice_loss = 1 - (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)
+        # 1. BCE with Logits (This is the Safe/Fused version for Mixed Precision)
+        # It applies sigmoid internally in a numerically stable way
+        bce = F.binary_cross_entropy_with_logits(inputs, targets, reduction='mean')
         
-        # BCE
-        bce = F.binary_cross_entropy(inputs, targets, reduction='mean')
+        # 2. Dice Loss (We still need probabilities for Dice, so we apply sigmoid here)
+        inputs_prob = torch.sigmoid(inputs)
+        
+        inputs_flat = inputs_prob.view(-1)
+        targets_flat = targets.view(-1)
+        
+        intersection = (inputs_flat * targets_flat).sum()
+        dice_loss = 1 - (2.*intersection + smooth)/(inputs_flat.sum() + targets_flat.sum() + smooth)
         
         return bce + dice_loss
 
@@ -238,6 +241,10 @@ def save_visual_report(model, loader, epoch):
 # ==========================================
 def run_training():
     # Load Data
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Running on: {DEVICE}") # This should only print ONCE now
+    NUM_WORKERS = 0
+
     train_ds = SaltDataset(TRAIN_DIR, augment=True)
     val_ds = SaltDataset(VAL_DIR, augment=False)
     
@@ -251,7 +258,7 @@ def run_training():
     model = SaltModel3D().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
     criterion = DiceBCELoss()
-    scaler = GradScaler() # Mixed Precision
+    scaler = torch.amp.GradScaler('cuda') # Mixed Precision
 
     # Loop
     best_loss = 999.0
@@ -266,7 +273,7 @@ def run_training():
             imgs, masks = imgs.to(DEVICE), masks.to(DEVICE)
             
             # Forward (Mixed Precision)
-            with autocast():
+            with torch.amp.autocast('cuda'):
                 preds = model(imgs)
                 loss = criterion(preds, masks)
             
