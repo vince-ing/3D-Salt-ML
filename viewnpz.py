@@ -4,7 +4,7 @@ import zipfile
 
 def check_all_cubes_batched():
     for split in ["train", "val", "test"]:
-        cube_dir = Path(f"processed_data/mckinley/{split}")
+        cube_dir = Path(f"processed_data/mississippi/{split}")
         
         if not cube_dir.exists():
             print(f"{split.upper()}: Directory not found")

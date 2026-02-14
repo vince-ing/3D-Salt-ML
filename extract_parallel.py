@@ -7,9 +7,8 @@ import sys
 
 """
 python extract_parallel.py 0 1800
-python extract_parallel.py 1800 3600
-python extract_parallel.py 3600 5391
-py -m extract_parallel.py 3600 5391
+py -m extract_parallel 1800 3600
+py -m extract_parallel 3600 5391
 """
 
 # ==========================================
