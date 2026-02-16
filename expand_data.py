@@ -4,8 +4,8 @@ import numpy as np
 from tqdm import tqdm
 
 # SETUP PATHS
-SOURCE_DIR = r"C:\Users\ig-gbds\ML_Data\train" # Where your .npz files are
-DEST_DIR   = r"C:\Users\ig-gbds\ML_Data_unpacked\train" # New fast folder
+SOURCE_DIR = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley\train" # Where your .npz files are
+DEST_DIR   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\train" # New fast folder
 
 def explode_dataset(source, dest):
     os.makedirs(dest, exist_ok=True)

@@ -1,0 +1,44 @@
+Deep-salt: Complete three-dimensional salt segmentation from inaccurate migrated subsurface offset gathers using deep learning
+2024
+https://doi.org/10.1111/1365-2478.13506
+	notes:
+		
+
+_________________________________________________________________________________________________________________________________________________________________________________
+
+
+SaltISNet3D: Interactive Salt Segmentation from 3D Seismic Images Using Deep Learning
+2023
+https://doi.org/10.3390/rs15092319
+	notes:
+
+
+_________________________________________________________________________________________________________________________________________________________________________________
+
+
+
+Salt3DNet: A Self-Supervised Learning Framework for 3-D Salt Segmentation
+2024
+https://doi.org/10.1109/TGRS.2024.3394592
+	notes:
+
+
+_________________________________________________________________________________________________________________________________________________________________________________
+
+
+
+Deep learning for salt body detection applied to 3D Gulf of Mexico data
+2020
+https://doi.org/10.1190/segam2020-3417484.1
+	notes:
+
+
+_________________________________________________________________________________________________________________________________________________________________________________
+
+
+
+SaltSeg: Automatic 3D salt segmentation using a deep convolutional neural network
+2019
+https://doi.org/10.1190/INT-2018-0235.1
+	notes:
+
