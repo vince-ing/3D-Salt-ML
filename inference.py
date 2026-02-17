@@ -11,19 +11,21 @@ import random
 # ==========================================
 # CONFIGURATION
 # ==========================================
-MODEL_PATH = "experiments/pilot_run_01/best_model.pth"
-VAL_DIR = r"C:\Users\ig-gbds\ML_Data_unpacked\val"
+MODEL_PATH = "experiments/pilot_run_02/best_model.pth"
+VAL_DIR = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\test"
 OUTPUT_DIR = "inference_results"
 
-MIN_SALT_RATIO = 0.10  # Only check slices with ≥10% salt
-NUM_SAMPLES = 9        # Number of random slices to check
+# FILTERING OPTIONS
+NUM_SAMPLES = 9         # Number of samples to visualize
+MIN_SALT_RATIO = 0.10   # Minimum salt percentage (0.10 = 10%)
+MAX_SALT_RATIO = 0.8    # Maximum salt percentage (1.0 = 100%, set to None for no max)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ==========================================
-# MODEL ARCHITECTURE (UPDATED - Must match training script!)
+# MODEL ARCHITECTURE (Must match training!)
 # ==========================================
 class ConvBlock(nn.Module):
     """Basic 3D Conv -> BN -> ReLU with Dropout"""
@@ -33,11 +35,11 @@ class ConvBlock(nn.Module):
             nn.Conv3d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm3d(out_ch),
             nn.ReLU(inplace=True),
-            nn.Dropout3d(p),  # Dropout layer
+            nn.Dropout3d(p),
             nn.Conv3d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm3d(out_ch),
             nn.ReLU(inplace=True),
-            nn.Dropout3d(p)   # Dropout layer
+            nn.Dropout3d(p)
         )
     def forward(self, x): 
         return self.conv(x)
@@ -66,7 +68,7 @@ class ASPP(nn.Module):
             nn.Conv3d(out_ch*3, out_ch, 1, bias=False), 
             nn.BatchNorm3d(out_ch), 
             nn.ReLU(),
-            nn.Dropout3d(0.3)  # Dropout in bottleneck
+            nn.Dropout3d(0.3)
         )
 
     def forward(self, x):
@@ -189,51 +191,11 @@ def compute_boundary_f1(pred, target, threshold=0.5):
 
 
 # ==========================================
-# FIND SALT-RICH CUBES
-# ==========================================
-def find_salt_cubes(data_dir, min_salt_ratio=0.10):
-    """
-    Scan validation set and find cubes with sufficient salt.
-    
-    Returns: List of (filepath, salt_ratio, metadata) tuples
-    """
-    files = sorted(glob.glob(os.path.join(data_dir, "*.npz")))
-    
-    salt_cubes = []
-    
-    print(f"Scanning {len(files)} validation cubes for salt content...")
-    
-    for fpath in files:
-        try:
-            with np.load(fpath) as data:
-                label = data['label']
-                salt_ratio = label.mean()
-                
-                if salt_ratio >= min_salt_ratio:
-                    # Also get metadata if available
-                    metadata = data.get('metadata', None)
-                    salt_cubes.append((fpath, salt_ratio, metadata))
-        except Exception as e:
-            print(f"Warning: Could not load {fpath}: {e}")
-            continue
-    
-    print(f"✅ Found {len(salt_cubes)} cubes with ≥{min_salt_ratio*100:.0f}% salt")
-    
-    return salt_cubes
-
-
-# ==========================================
 # VISUALIZATION
 # ==========================================
 def visualize_prediction(seismic, ground_truth, prediction, metrics, output_path):
     """
     Create comprehensive visualization with colorbars and legends.
-    
-    Shows 3 orthogonal slices (inline, crossline, time) for each of:
-    - Seismic input
-    - Ground truth
-    - AI prediction
-    - Overlay with legend
     """
     # Get middle slices
     d, h, w = seismic.shape
@@ -242,8 +204,6 @@ def visualize_prediction(seismic, ground_truth, prediction, metrics, output_path
     mid_w = w // 2
     
     fig = plt.figure(figsize=(20, 12))
-    
-    # Create grid: 3 rows (inline, xline, time) × 4 columns (seismic, truth, pred, overlay)
     
     for row, (axis_name, slice_idx, axis) in enumerate([
         ("Inline Slice", mid_d, 0),
@@ -270,18 +230,16 @@ def visualize_prediction(seismic, ground_truth, prediction, metrics, output_path
         ax1.set_title(f'{axis_name}: Seismic Input', fontweight='bold')
         ax1.axis('off')
         
-        # Add colorbar for seismic (only for first row)
         if row == 0:
             cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
             cbar1.set_label('Normalized\nAmplitude', fontsize=9)
         
         # Column 2: Ground Truth
         ax2 = plt.subplot(3, 4, row*4 + 2)
-        im2 = ax2.imshow(truth_slice.T, cmap='RdYlGn_r', vmin=0, vmax=1)
+        im2 = ax2.imshow(truth_slice.T, cmap='bwr', vmin=0, vmax=1)
         ax2.set_title(f'{axis_name}: Ground Truth', fontweight='bold')
         ax2.axis('off')
         
-        # Add colorbar for ground truth (only for first row)
         if row == 0:
             cbar2 = plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
             cbar2.set_label('Salt\nProbability', fontsize=9)
@@ -290,11 +248,10 @@ def visualize_prediction(seismic, ground_truth, prediction, metrics, output_path
         
         # Column 3: Prediction
         ax3 = plt.subplot(3, 4, row*4 + 3)
-        im3 = ax3.imshow(pred_slice.T, cmap='RdYlGn_r', vmin=0, vmax=1)
+        im3 = ax3.imshow(pred_slice.T, cmap='bwr', vmin=0, vmax=1)
         ax3.set_title(f'{axis_name}: AI Prediction', fontweight='bold')
         ax3.axis('off')
         
-        # Add colorbar for prediction (only for first row)
         if row == 0:
             cbar3 = plt.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
             cbar3.set_label('Predicted\nProbability', fontsize=9)
@@ -303,34 +260,26 @@ def visualize_prediction(seismic, ground_truth, prediction, metrics, output_path
         
         # Column 4: Overlay with Error Visualization
         ax4 = plt.subplot(3, 4, row*4 + 4)
-        
-        # Show seismic as grayscale background
         ax4.imshow(seismic_slice.T, cmap='gray', vmin=-3, vmax=3, alpha=0.6)
         
-        # Create error map: Green=correct, Red=false positive, Blue=false negative
         pred_binary = (pred_slice > 0.5).astype(float)
         truth_binary = (truth_slice > 0.5).astype(float)
         
-        # Create RGB overlay
-        overlay = np.zeros((*pred_slice.T.shape, 4))  # RGBA
+        overlay = np.zeros((*pred_slice.T.shape, 4))
         
-        # True Positives (correct salt) - Green
         tp_mask = (pred_binary.T == 1) & (truth_binary.T == 1)
-        overlay[tp_mask] = [0, 1, 0, 0.6]  # Green, 60% opacity
+        overlay[tp_mask] = [0, 1, 0, 0.6]
         
-        # False Positives (predicted salt, actually rock) - Red
         fp_mask = (pred_binary.T == 1) & (truth_binary.T == 0)
-        overlay[fp_mask] = [1, 0, 0, 0.6]  # Red, 60% opacity
+        overlay[fp_mask] = [1, 0, 0, 0.6]
         
-        # False Negatives (missed salt) - Blue
         fn_mask = (pred_binary.T == 0) & (truth_binary.T == 1)
-        overlay[fn_mask] = [0, 0.5, 1, 0.6]  # Blue, 60% opacity
+        overlay[fn_mask] = [0, 0.5, 1, 0.6]
         
         ax4.imshow(overlay)
         ax4.set_title(f'{axis_name}: Prediction Quality', fontweight='bold')
         ax4.axis('off')
         
-        # Add legend (only for first row)
         if row == 0:
             from matplotlib.patches import Patch
             legend_elements = [
@@ -352,14 +301,14 @@ def visualize_prediction(seismic, ground_truth, prediction, metrics, output_path
 
 
 # ==========================================
-# MAIN INFERENCE
+# MAIN INFERENCE - FAST VERSION
 # ==========================================
 def run_inference():
     """
-    Load model and run inference on random salt-rich cubes.
+    Load model and run inference on random samples (FAST - no upfront scanning).
     """
     print("="*70)
-    print("3D SALT SEGMENTATION - INFERENCE")
+    print("SALT SEGMENTATION - INFERENCE")
     print("="*70)
     print(f"Device: {DEVICE}")
     print(f"Model: {MODEL_PATH}")
@@ -368,53 +317,102 @@ def run_inference():
     
     # 1. Load Model
     print("Loading model...")
-    model = SaltModel3D(dropout_rate=0.2).to(DEVICE)  # IMPORTANT: Must match training dropout
+    model = SaltModel3D(dropout_rate=0.2).to(DEVICE)
     
     try:
-        state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
-        model.load_state_dict(state_dict)
-        print("✅ Model loaded successfully")
+        checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
+        
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+            print("✅ Model loaded successfully")
+            
+            if 'epoch' in checkpoint:
+                print(f"   Checkpoint from epoch: {checkpoint['epoch']}")
+            if 'val_iou' in checkpoint:
+                print(f"   Validation IoU: {checkpoint['val_iou']:.4f}")
+            if 'val_dice' in checkpoint:
+                print(f"   Validation Dice: {checkpoint['val_dice']:.4f}")
+            if 'val_loss' in checkpoint:
+                print(f"   Validation Loss: {checkpoint['val_loss']:.4f}")
+        else:
+            model.load_state_dict(checkpoint)
+            print("✅ Model loaded successfully (old checkpoint format)")
+        
         print("   Note: Dropout layers are automatically disabled during inference (eval mode)\n")
     except Exception as e:
         print(f"❌ Failed to load model: {e}")
         return
     
-    model.eval()  # CRITICAL: Sets dropout to eval mode (disabled)
+    model.eval()
     
-    # 2. Find salt-rich cubes
-    salt_cubes = find_salt_cubes(VAL_DIR, min_salt_ratio=MIN_SALT_RATIO)
+    # 2. Get list of files (FAST - no loading yet!)
+    print("Finding .npz files...")
+    all_files = sorted(glob.glob(os.path.join(VAL_DIR, "*.npz")))
     
-    if len(salt_cubes) == 0:
-        print(f"❌ No cubes found with ≥{MIN_SALT_RATIO*100:.0f}% salt")
+    if len(all_files) == 0:
+        print(f"❌ No .npz files found in {VAL_DIR}")
         return
     
-    # 3. Select random samples
-    num_samples = min(NUM_SAMPLES, len(salt_cubes))
-    selected_cubes = random.sample(salt_cubes, num_samples)
+    print(f"✅ Found {len(all_files)} total cubes")
+    
+    # 3. Shuffle files for random sampling
+    random.shuffle(all_files)
     
     print(f"\n{'='*70}")
-    print(f"Selected {num_samples} random cubes for inference:")
+    if MAX_SALT_RATIO is not None and MAX_SALT_RATIO < 1.0:
+        print(f"Searching for {NUM_SAMPLES} cubes with {MIN_SALT_RATIO*100:.0f}% - {MAX_SALT_RATIO*100:.0f}% salt")
+    else:
+        print(f"Searching for {NUM_SAMPLES} cubes with ≥{MIN_SALT_RATIO*100:.0f}% salt")
+    print(f"(Will keep trying until {NUM_SAMPLES} valid samples are found)")
     print(f"{'='*70}\n")
     
-    # 4. Run inference on each sample
+    # 4. Run inference - keep going until we have NUM_SAMPLES valid cubes
     all_metrics = []
+    samples_found = 0
+    files_checked = 0
     
-    for idx, (fpath, salt_ratio, metadata) in enumerate(selected_cubes, 1):
-        print(f"Sample {idx}/{num_samples}")
-        print(f"  File: {Path(fpath).name}")
-        print(f"  Ground truth salt: {salt_ratio:.1%}")
+    for fpath in all_files:
+        # Stop when we have enough samples
+        if samples_found >= NUM_SAMPLES:
+            break
+            
+        files_checked += 1
         
         # Load data
         try:
             with np.load(fpath) as data:
                 seismic = data['seismic']
                 label = data['label']
+                
+            salt_ratio = label.mean()
+            
+            # Check if salt ratio is within valid range
+            if salt_ratio < MIN_SALT_RATIO:
+                if files_checked <= 20:
+                    print(f"Checking... {Path(fpath).name}: {salt_ratio:.1%} salt - too little (min: {MIN_SALT_RATIO*100:.0f}%)")
+                elif files_checked % 50 == 0:
+                    print(f"  ... checked {files_checked} files, found {samples_found}/{NUM_SAMPLES} valid samples")
+                continue
+            
+            if MAX_SALT_RATIO is not None and salt_ratio > MAX_SALT_RATIO:
+                if files_checked <= 20:
+                    print(f"Checking... {Path(fpath).name}: {salt_ratio:.1%} salt - too much (max: {MAX_SALT_RATIO*100:.0f}%)")
+                elif files_checked % 50 == 0:
+                    print(f"  ... checked {files_checked} files, found {samples_found}/{NUM_SAMPLES} valid samples")
+                continue
+            
+            # Found a valid sample!
+            samples_found += 1
+            print(f"\n✓ Sample {samples_found}/{NUM_SAMPLES}")
+            print(f"  File: {Path(fpath).name}")
+            print(f"  Ground truth salt: {salt_ratio:.1%}")
+                
         except Exception as e:
             print(f"  ❌ Error loading: {e}\n")
             continue
         
         # Prepare input
-        seismic_tensor = torch.from_numpy(seismic).float().unsqueeze(0).unsqueeze(0)  # (1, 1, D, H, W)
+        seismic_tensor = torch.from_numpy(seismic).float().unsqueeze(0).unsqueeze(0)
         seismic_tensor = seismic_tensor.to(DEVICE)
         
         # Run inference
@@ -423,7 +421,7 @@ def run_inference():
             pred_prob = torch.sigmoid(pred_logits)
         
         # Convert to numpy
-        pred_prob = pred_prob[0, 0].cpu().numpy()  # Remove batch and channel dims
+        pred_prob = pred_prob[0, 0].cpu().numpy()
         
         # Compute metrics
         iou = compute_iou(pred_prob, label)
@@ -444,11 +442,22 @@ def run_inference():
         print(f"  IoU: {iou:.3f}")
         print(f"  Dice: {dice:.3f}")
         print(f"  Boundary F1: {boundary_f1:.3f}")
-        print(f"  Predicted salt: {pred_salt_ratio:.1%}\n")
+        print(f"  Predicted salt: {pred_salt_ratio:.1%}")
         
         # Visualize
-        output_path = os.path.join(OUTPUT_DIR, f"inference_sample_{idx}.png")
+        output_path = os.path.join(OUTPUT_DIR, f"inference_sample_{samples_found}.png")
         visualize_prediction(seismic, label, pred_prob, metrics, output_path)
+    
+    # Report if we couldn't find enough samples
+    if samples_found < NUM_SAMPLES:
+        print(f"\n⚠ Warning: Only found {samples_found}/{NUM_SAMPLES} valid cubes")
+        print(f"   Checked {files_checked} files total")
+        if MAX_SALT_RATIO is not None and MAX_SALT_RATIO < 1.0:
+            print(f"   Required salt range: {MIN_SALT_RATIO*100:.0f}% - {MAX_SALT_RATIO*100:.0f}%")
+            print(f"   Consider widening the range (adjust MIN_SALT_RATIO or MAX_SALT_RATIO)")
+        else:
+            print(f"   Required minimum salt: {MIN_SALT_RATIO*100:.0f}%")
+            print(f"   Consider lowering MIN_SALT_RATIO or using more data")
     
     # 5. Summary statistics
     print("="*70)
