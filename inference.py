@@ -7,18 +7,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pathlib import Path
 import random
+import datetime
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
 MODEL_PATH = "experiments/pilot_run_02/best_model.pth"
 VAL_DIR = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\test"
-OUTPUT_DIR = "inference_results"
+timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M") 
+run_name = Path(MODEL_PATH).parts[-2]  # Extracts "pilot_run_02"
+OUTPUT_DIR = f"inference_results/{run_name}_{timestamp}"
 
 # FILTERING OPTIONS
 NUM_SAMPLES = 9         # Number of samples to visualize
 MIN_SALT_RATIO = 0.10   # Minimum salt percentage (0.10 = 10%)
-MAX_SALT_RATIO = 0.8    # Maximum salt percentage (1.0 = 100%, set to None for no max)
+MAX_SALT_RATIO = 0.7    # Maximum salt percentage (1.0 = 100%, set to None for no max)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
