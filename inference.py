@@ -19,9 +19,9 @@ run_name = Path(MODEL_PATH).parts[-2]  # Extracts "pilot_run_02"
 OUTPUT_DIR = f"inference_results/{run_name}_{timestamp}"
 
 # FILTERING OPTIONS
-NUM_SAMPLES = 9         # Number of samples to visualize
+NUM_SAMPLES = 20         # Number of samples to visualize
 MIN_SALT_RATIO = 0.10   # Minimum salt percentage (0.10 = 10%)
-MAX_SALT_RATIO = 0.7    # Maximum salt percentage (1.0 = 100%, set to None for no max)
+MAX_SALT_RATIO = 0.8    # Maximum salt percentage (1.0 = 100%, set to None for no max)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
