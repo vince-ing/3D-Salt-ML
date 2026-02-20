@@ -1,0 +1,11 @@
+To Do
+
+Frequency filter survey Keathley to Mississippi, reduce frequency to 5-35? smooth shape? reduce energy (amplitude?)
+Normalize cube by cube
+	Do I need to re extract cubes? Do I need to undo previous normalization?
+
+Select specific cubed to run inference run
+Do 3D inference visualization
+
+Run U Net and compare results
+
