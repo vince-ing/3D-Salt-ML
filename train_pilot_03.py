@@ -1,6 +1,7 @@
 import os
 import glob
 import numpy as np
+import random
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
@@ -33,11 +34,12 @@ DATA_SOURCES = [
 ]
 
 SAVE_DIR = "experiments/multi_dataset_run_01"
+USE_SUBSET = 0.5
 
 # HYPERPARAMETERS
 BATCH_SIZE = 6          # Start small (2 or 4) to avoid Out-Of-Memory
 LR = 1e-4               # Learning Rate
-EPOCHS = 20
+EPOCHS = 50
 DROPOUT_RATE = 0.2      # Dropout probability
 WEIGHT_DECAY = 1e-4     # L2 regularization
 EARLY_STOP_PATIENCE = 10 # Epochs to wait before stopping
@@ -412,6 +414,20 @@ def run_training():
         print("\n❌ ERROR: No validation data found in any source!")
         print("Please check your DATA_SOURCES paths and ensure .npz files exist.")
         return
+    
+    if USE_SUBSET < 1.0:
+        print(f"\n⚡ Using {USE_SUBSET*100:.0f}% of training data for faster iteration")
+        for ds in train_datasets:
+            original_count = len(ds.files)
+            random.shuffle(ds.files)
+            ds.files = ds.files[:int(len(ds.files) * USE_SUBSET)]
+            print(f"  [{ds.dataset_name}]: {original_count} → {len(ds.files)} cubes")
+        
+        for ds in val_datasets:
+            original_count = len(ds.files)
+            random.shuffle(ds.files)
+            ds.files = ds.files[:int(len(ds.files) * USE_SUBSET)]
+            print(f"  [{ds.dataset_name}] val: {original_count} → {len(ds.files)} cubes")
     
     # Combine all datasets using ConcatDataset
     print("\n" + "="*70)

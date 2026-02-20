@@ -12,15 +12,18 @@ import datetime
 # ==========================================
 # CONFIGURATION
 # ==========================================
-MODEL_PATH = "experiments/pilot_run_02/best_model.pth"
-VAL_DIR = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\test"
+MODEL_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\experiments\multi_dataset_multiscale_run_02\best_model.pth"
+VAL_DIRS = [
+    r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\test",
+    r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mississippi_expand\test"
+]
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M") 
 run_name = Path(MODEL_PATH).parts[-2]  # Extracts "pilot_run_02"
 OUTPUT_DIR = f"inference_results/{run_name}_{timestamp}"
 
 # FILTERING OPTIONS
-NUM_SAMPLES = 20         # Number of samples to visualize
-MIN_SALT_RATIO = 0.10   # Minimum salt percentage (0.10 = 10%)
+NUM_SAMPLES = 25         # Number of samples to visualize
+MIN_SALT_RATIO = 0.1   # Minimum salt percentage (0.10 = 10%)
 MAX_SALT_RATIO = 0.8    # Maximum salt percentage (1.0 = 100%, set to None for no max)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -315,7 +318,9 @@ def run_inference():
     print("="*70)
     print(f"Device: {DEVICE}")
     print(f"Model: {MODEL_PATH}")
-    print(f"Validation Dir: {VAL_DIR}")
+    print(f"Validation Dirs: {len(VAL_DIRS)} datasets")
+    for vdir in VAL_DIRS:
+        print(f"  - {vdir}")
     print("="*70 + "\n")
     
     # 1. Load Model
@@ -349,14 +354,20 @@ def run_inference():
     model.eval()
     
     # 2. Get list of files (FAST - no loading yet!)
-    print("Finding .npz files...")
-    all_files = sorted(glob.glob(os.path.join(VAL_DIR, "*.npz")))
-    
+    print("Finding .npz files from multiple datasets...")
+    all_files = []
+    for val_dir in VAL_DIRS:
+        files = glob.glob(os.path.join(val_dir, "*.npz"))
+        all_files.extend(files)
+        print(f"  {Path(val_dir).name}: {len(files)} cubes")
+
+    all_files = sorted(all_files)
+
     if len(all_files) == 0:
-        print(f"❌ No .npz files found in {VAL_DIR}")
+        print(f"❌ No .npz files found in any validation directory")
         return
-    
-    print(f"✅ Found {len(all_files)} total cubes")
+
+    print(f"✅ Found {len(all_files)} total cubes across all datasets")
     
     # 3. Shuffle files for random sampling
     random.shuffle(all_files)

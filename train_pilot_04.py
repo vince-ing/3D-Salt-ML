@@ -36,15 +36,15 @@ DATA_SOURCES = [
 SAVE_DIR = "experiments/multi_dataset_multiscale_run_02"
 
 # HYPERPARAMETERS
-BATCH_SIZE = 4          # Reduced from 6 - multi-scale uses more VRAM
+BATCH_SIZE = 6          # Reduced from 6 - multi-scale uses more VRAM
 LR = 1e-4               # Learning Rate
-EPOCHS = 20
+EPOCHS = 50
 DROPOUT_RATE = 0.2      # Dropout probability
 WEIGHT_DECAY = 1e-4     # L2 regularization
 EARLY_STOP_PATIENCE = 10 # Epochs to wait before stopping
 LR_PATIENCE = 5         # Epochs to wait before reducing LR
 LR_FACTOR = 0.5         # Factor to reduce LR by
-USE_TTA = True          # Test-Time Augmentation during validation
+USE_TTA = False          # Test-Time Augmentation during validation
 SYNTH_AUG_PROB = 0.1    # Probability of adding synthetic water/edges
 
 # Multi-scale settings
