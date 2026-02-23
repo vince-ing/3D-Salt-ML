@@ -1,0 +1,14 @@
+DATA SOURCES USED IN TRAINING
+======================================================================
+
+Source: mckinley
+  Train: G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\train
+  Val:   G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\val
+
+Source: mississippi
+  Train: G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mississippi_expand\train
+  Val:   G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mississippi_expand\val
+
+
+Total Training Cubes: 25323
+Total Validation Cubes: 3116

@@ -1,11 +1,13 @@
 To Do
 
-Frequency filter survey Keathley to Mississippi, reduce frequency to 5-35? smooth shape? reduce energy (amplitude?)
+Quality control Keathley? 
+Frequency filter survey Keathley to Mississippi, reduce frequency to 3-37? smooth shape? reduce energy to equalize (amplitude?)
 Normalize cube by cube
-	Do I need to re extract cubes? Do I need to undo previous normalization?
+Resample to 128x128x256 (taller)
 
-Select specific cubed to run inference run
+Select specific cubes to run inference run
 Do 3D inference visualization
 
 Run U Net and compare results
+Test 2d model to compare results
 

@@ -12,7 +12,7 @@ import datetime
 # ==========================================
 # CONFIGURATION
 # ==========================================
-MODEL_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\experiments\multi_dataset_multiscale_run_02\best_model.pth"
+MODEL_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\experiments\multi_dataset_run_01\best_model.pth"
 VAL_DIRS = [
     r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\test",
     r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mississippi_expand\test"

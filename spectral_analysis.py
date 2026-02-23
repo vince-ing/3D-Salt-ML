@@ -6,7 +6,7 @@ from scipy.signal import windows
 filename = "raw_seismic_mississippi.sgy"
 
 with segyio.open(filename, "r", ignore_geometry=True) as f:
-    traces = segyio.tools.collect(f.trace[13000:14000])  # try later traces
+    traces = segyio.tools.collect(f.trace[13000:14000]) 
     dt = segyio.tools.dt(f) / 1e6  # seconds
 
 # window (e.g., 500–1500 ms)
