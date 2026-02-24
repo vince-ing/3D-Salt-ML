@@ -1,7 +1,6 @@
 To Do
 
-Quality control Keathley? 
-Frequency filter survey Keathley to Mississippi, reduce frequency to 3-37? smooth shape? reduce energy to equalize (amplitude?)
+smooth shape? reduce energy to equalize (amplitude?)
 Normalize cube by cube
 Resample to 128x128x256 (taller)
 

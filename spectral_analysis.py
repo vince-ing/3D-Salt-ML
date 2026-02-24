@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import windows
 
-filename = "raw_seismic_mississippi.sgy"
+filename = "keathley_filtered_3_37Hz.sgy"
 
 with segyio.open(filename, "r", ignore_geometry=True) as f:
     traces = segyio.tools.collect(f.trace[13000:14000]) 
