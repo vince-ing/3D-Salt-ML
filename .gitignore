@@ -2,6 +2,7 @@
 *.bin
 *.npz
 raw_seismic_mississippi
+shortcut.lnk
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
