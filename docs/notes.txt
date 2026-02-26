@@ -10,6 +10,9 @@ pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu12
 cd G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection
 
 
+Inference
+py src/inference/3dinference.py
+
 
 Mississippi stats
  - Global Mean: -0.0003

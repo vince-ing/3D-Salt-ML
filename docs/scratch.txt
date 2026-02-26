@@ -2,7 +2,7 @@ To Do
 
 smooth shape? reduce energy to equalize (amplitude?)
 Normalize cube by cube
-Resample to 128x128x256 (taller) Or resample at 256x256x256 for multiscale context?
+Resample to 128x128x256 (taller) Or resample at 256x256x256 for multiscale context? -Basically 256 cubes, 'fine' 128 crop in random part of cube and use lsrger 256 cube for context, randomly cropping across epochs
 
 Select specific cubes to run inference run
 Do 3D inference visualization
