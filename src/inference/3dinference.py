@@ -34,11 +34,11 @@ pv.global_theme.font.color = "white"
 # ============================================================
 # CONFIGURATION — edit these paths before running
 # ============================================================
-MODEL_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\experiments\multi_dataset_multiscale_run_02\best_model.pth"
+MODEL_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\outputs\experiments\multi_dataset_multiscale_run_02\best_model.pth"
 
 VAL_DIRS = [
-    r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mckinley_expand\test",
-    r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\processed_data\mississippi_expand\test",
+    r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\keathley128unfiltered\test",
+    r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi128unfiltered\test",
 ]
 
 MIN_SALT_RATIO = 0.10   # only pick cubes with ≥10 % salt
@@ -263,7 +263,7 @@ def run():
     pl.add_mesh(
         seis_grid,
         scalars="values",
-        cmap="gray",
+        cmap="gray_r",
         clim=[-3, 3],
         opacity=1.0,
         show_scalar_bar=True,

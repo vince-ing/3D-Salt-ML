@@ -42,3 +42,13 @@ SaltSeg: Automatic 3D salt segmentation using a deep convolutional neural networ
 https://doi.org/10.1190/INT-2018-0235.1
 	notes:
 
+
+_________________________________________________________________________________________________________________________________________________________________________________
+
+
+Memory-efficient full-volume inference for large-scale 3D dense prediction without performance degradation
+2026
+https://doi.org/10.1038/s44172-025-00576-2
+	notes:
+
+
