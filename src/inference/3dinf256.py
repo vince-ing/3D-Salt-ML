@@ -58,7 +58,7 @@ TEST_DIR = (
     r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection"
     r"\data\processed\mississippi256\test"
 )
-MIN_SALT_RATIO = 0.10
+MIN_SALT_RATIO = 0.05
 MAX_SALT_RATIO = 0.90
 
 # ── Used when CUBE_SOURCE = "csv" ───────────────────────────
@@ -87,7 +87,7 @@ SCREENSHOT_DIR = (
 )
 
 # ── Inference settings ───────────────────────────────────────
-THRESHOLD  = 0.50
+THRESHOLD  = 0.60
 CUBE_SIZE  = 256
 FINE_SIZE  = 128
 HALF       = FINE_SIZE // 2
@@ -257,9 +257,90 @@ def build_cube_list_random(test_dir: str,
     return candidates
 
 
+def read_stems_from_file(csv_path: str, column: str) -> list:
+    """
+    Read a list of cube stems from a column in either:
+      - a real CSV / TSV file  (any common encoding)
+      - an .xlsx file saved with a .csv extension  (common Excel behaviour)
+
+    Returns a list of non-empty stripped strings.
+    """
+    # ── Detect whether this is actually an xlsx (ZIP) file ──────────────
+    with open(csv_path, "rb") as f:
+        magic = f.read(4)
+
+    if magic[:2] == b"PK":
+        # It's a ZIP-based Office file (xlsx). Try openpyxl first, then
+        # fall back to pandas so the script works in more environments.
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(csv_path, read_only=True, data_only=True)
+            ws = wb.active
+            headers = [str(c.value).strip() if c.value is not None else ""
+                       for c in next(ws.iter_rows(min_row=1, max_row=1))]
+            if column not in headers:
+                sys.exit(
+                    f"❌  Column '{column}' not found in workbook.\n"
+                    f"    Available columns: {headers}"
+                )
+            col_idx = headers.index(column)
+            stems = []
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                val = row[col_idx]
+                if val is not None and str(val).strip():
+                    stems.append(str(val).strip())
+            wb.close()
+            return stems
+        except ImportError:
+            pass  # fall through to pandas
+
+        try:
+            import pandas as pd
+            df = pd.read_excel(csv_path, dtype=str)
+            if column not in df.columns:
+                sys.exit(
+                    f"❌  Column '{column}' not found in workbook.\n"
+                    f"    Available columns: {list(df.columns)}"
+                )
+            return [v.strip() for v in df[column].dropna() if str(v).strip()]
+        except ImportError:
+            sys.exit(
+                "❌  The CSV file is actually an Excel (.xlsx) file.\n"
+                "    Install openpyxl or pandas to read it automatically:\n"
+                "        pip install openpyxl\n"
+                "    Or re-save the file from Excel as a proper CSV:\n"
+                "        File → Save As → CSV UTF-8 (Comma delimited)"
+            )
+
+    # ── Regular text CSV — try common encodings in order ────────────────
+    for encoding in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+        try:
+            with open(csv_path, newline="", encoding=encoding) as f:
+                reader = csv.DictReader(f)
+                # Strip BOM and whitespace from fieldnames defensively
+                raw_fields = reader.fieldnames or []
+                clean_map  = {fn.lstrip("\ufeff").strip(): fn for fn in raw_fields}
+                if column not in clean_map:
+                    sys.exit(
+                        f"\u274c  Column '{column}' not found in CSV.\n"
+                        f"    Available columns: {list(clean_map.keys())}"
+                    )
+                actual_key = clean_map[column]
+                stems = [row[actual_key].strip() for row in reader
+                         if row[actual_key].strip()]
+            return stems
+        except UnicodeDecodeError:
+            continue
+
+    sys.exit(
+        f"❌  Could not decode '{csv_path}' with any common encoding.\n"
+        f"    Re-save it from Excel as 'CSV UTF-8 (Comma delimited)'."
+    )
+
+
 def build_cube_list_csv(csv_path: str, column: str, dir_map: dict) -> list:
     """
-    Read cube stems from a CSV column and resolve each to a .npz path.
+    Read cube stems from a CSV/xlsx column and resolve each to a .npz path.
 
     Stems may be bare names (without .npz) or include the extension.
     The column name is used as the key into dir_map so multi-dataset
@@ -275,18 +356,10 @@ def build_cube_list_csv(csv_path: str, column: str, dir_map: dict) -> list:
         )
 
     test_dir = dir_map[column]
-
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        if column not in (reader.fieldnames or []):
-            sys.exit(
-                f"❌  Column '{column}' not found in CSV.\n"
-                f"    Available columns: {reader.fieldnames}"
-            )
-        stems = [row[column].strip() for row in reader if row[column].strip()]
+    stems    = read_stems_from_file(csv_path, column)
 
     if not stems:
-        sys.exit(f"❌  Column '{column}' is empty in the CSV.")
+        sys.exit(f"❌  Column '{column}' is empty in the file.")
 
     candidates, missing = [], []
     for stem in stems:
@@ -345,7 +418,12 @@ def render_cube(pl: pv.Plotter, model,
           f"IoU: {iou:.3f}   Dice: {dice:.3f}")
 
     # ── pyvista geometry ──────────────────────────────────────
-    seis_grid  = to_grid(fine).cell_data_to_point_data()
+    # Transpose (depth, inline, crossline) -> (inline, crossline, depth)
+    # so PyVista axes are X=inline, Y=crossline, Z=depth.
+    # This means normal="x" gives an inline section, normal="y" a crossline,
+    # and normal="z" a time/depth slice — all of which show real seismic structure.
+    fine_pvista = np.transpose(fine, (1, 2, 0)).copy()
+    seis_grid   = to_grid(fine_pvista).cell_data_to_point_data()
     truth_surf = iso_surface(label_crop)
     pred_surf  = iso_surface(pred)
 
@@ -372,19 +450,23 @@ def render_cube(pl: pv.Plotter, model,
         pl.add_text(nav_tag,      font_size=8,  color="#aaaaaa",  position="lower_left")
         pl.add_text(panel_title,  font_size=10, color="white",    position="upper_right")
 
-    # ── [0,0]  Seismic ─────────────────────────────────────
+    # ── [0,0]  Seismic — three orthogonal slices through center ──
     pl.subplot(0, 0)
-    pl.add_mesh(
-        seis_grid,
-        scalars="values",
-        cmap="gray_r",
-        clim=[-3, 3],
-        opacity=1.0,
+    # Use the same approach as the proven old inference script:
+    # slice the point-data ImageData along all three axes at the cube center.
+    # PyVista interpolates correctly from point data — no transposing needed.
+    sl_x = seis_grid.slice(normal="x", origin=seis_grid.center)  # inline section
+    sl_y = seis_grid.slice(normal="y", origin=seis_grid.center)  # crossline section
+    sl_z = seis_grid.slice(normal="z", origin=seis_grid.center)  # time/depth slice
+    seis_kwargs = dict(scalars="values", cmap="gray_r", clim=[-3, 3],
+                       show_scalar_bar=False)
+    pl.add_mesh(sl_x, **seis_kwargs)
+    pl.add_mesh(sl_y, **seis_kwargs)
+    pl.add_mesh(sl_z,
+        scalars="values", cmap="gray_r", clim=[-3, 3],
         show_scalar_bar=True,
-        scalar_bar_args={
-            "title": "Amplitude", "vertical": True,
-            "color": "white", "fmt": "%.1f",
-        },
+        scalar_bar_args={"title": "Amplitude", "vertical": True,
+                         "color": "white", "fmt": "%.1f"},
     )
     pl.add_mesh(seis_grid.outline(), color="white", line_width=1.5)
     add_panel_labels("Seismic")

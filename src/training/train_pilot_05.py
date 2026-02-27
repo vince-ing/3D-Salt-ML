@@ -428,7 +428,7 @@ def append_csv_log(csv_path, row: dict):
 
 def run_training():
     # ── Timestamp & save dir created HERE (main process only) ──────────
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     save_dir  = os.path.join(EXPERIMENTS_BASE, f"multiscale_256_{timestamp}")
     os.makedirs(save_dir, exist_ok=True)
     print(f"Saving to: {save_dir}")
@@ -640,7 +640,7 @@ def run_training():
         # ── Write epoch row to CSV ─────────────────────────────────────
         append_csv_log(csv_path, {
             'epoch':               epoch + 1,
-            'timestamp':           datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'timestamp':           datetime.now().strftime("%Y-%m-%d_%H%M"),
             'train_loss':          round(avg_train,     6),
             'val_loss':            round(avg_val_loss,  6),
             'val_iou':             round(avg_val_iou,   6),

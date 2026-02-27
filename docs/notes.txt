@@ -12,7 +12,7 @@ cd G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection
 
 Inference
 py src/inference/3dinference.py
-
+python src/inference/3dinf256.py
 
 Mississippi stats
  - Global Mean: -0.0003
