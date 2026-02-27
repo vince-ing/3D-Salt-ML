@@ -1,12 +1,19 @@
 To Do
 
-smooth shape? reduce energy to equalize (amplitude?)
+Adjust Keathley spectra to Mississippi
+reduce energy to equalize 
 Normalize cube by cube
-Resample to 128x128x256 (taller) Or resample at 256x256x256 for multiscale context? -Basically 256 cubes, 'fine' 128 crop in random part of cube and use lsrger 256 cube for context, randomly cropping across epochs
+Resample to 128x128x256 (taller) Or resample at 256x256x256 for multiscale context? -Basically 256 cubes, 'fine' 128 crop in random part of cube and use larger 256 cube for context, randomly cropping across epochs
+	--In process of resampling, Mississippi done, Keathley next, need to fix frequency filtering first 
 
 Select specific cubes to run inference run
 Do 3D inference visualization
 
 Run U Net and compare results
 Test 2d model to compare results
+
+
+Compare synthetic and fine tuning to manual labels (larger uncertainty), or small sample of manual labels
+Compare resnet, unet, transformer (given by Chao)
+
 

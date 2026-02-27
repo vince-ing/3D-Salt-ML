@@ -1,4 +1,5 @@
 import os
+import csv
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,19 +22,14 @@ DATA_SOURCES = [
         'train': r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi256\train",
         'val':   r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi256\val"
     },
-    """{
-        'name': 'keathley',
-        'train': r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\keathley256\train",
-        'val':   r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\keathley256\val"
-    },"""
+    #{
+    #    'name': 'keathley',
+    #    'train': r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\keathley256\train",
+    #    'val':   r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\keathley256\val"
+    #},
 ]
 
-# Timestamped save directory so each run is preserved
-_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M")
-SAVE_DIR = os.path.join(
-    r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\outputs\experiments",
-    f"multiscale_256_{_TIMESTAMP}"
-)
+EXPERIMENTS_BASE = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\outputs\experiments"
 
 # PATCH SIZES
 CUBE_SIZE  = 256    # Size of stored .npz patches
@@ -59,8 +55,6 @@ LR_FACTOR            = 0.5
 USE_TTA              = False
 SYNTH_AUG_PROB       = 0.1   # Probability of synthetic water/edge injection on fine patch
 
-os.makedirs(SAVE_DIR, exist_ok=True)
-print(f"Saving to: {SAVE_DIR}")
 
 # ==========================================
 # 2. DATASET
@@ -395,10 +389,50 @@ def compute_metrics_with_tta(model, imgs, contexts, masks):
 
 
 # ==========================================
-# 5. TRAINING
+# 5. CSV EPOCH LOGGER
+# ==========================================
+
+CSV_FIELDS = [
+    'epoch',
+    'timestamp',
+    'train_loss',
+    'val_loss',
+    'val_iou',
+    'val_dice',
+    'learning_rate',
+    'is_best',
+    'best_val_iou_so_far',
+    'early_stop_counter',
+    'epoch_duration_sec',
+]
+
+def init_csv_log(save_dir):
+    """Create the CSV file with headers. Called once at the start of training."""
+    csv_path = os.path.join(save_dir, "epoch_log.csv")
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+    return csv_path
+
+
+def append_csv_log(csv_path, row: dict):
+    """Append a single epoch row to the CSV. Safe to call after every epoch."""
+    with open(csv_path, 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writerow(row)
+
+
+# ==========================================
+# 6. TRAINING
 # ==========================================
 
 def run_training():
+    # ── Timestamp & save dir created HERE (main process only) ──────────
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    save_dir  = os.path.join(EXPERIMENTS_BASE, f"multiscale_256_{timestamp}")
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"Saving to: {save_dir}")
+
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\nDevice: {DEVICE}")
 
@@ -467,13 +501,17 @@ def run_training():
     optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=LR_FACTOR,
-        patience=LR_PATIENCE, verbose=True, min_lr=1e-7)
+        patience=LR_PATIENCE, min_lr=1e-7)
     criterion = DiceBCELoss(pos_weight=2.0)
     scaler    = torch.amp.GradScaler('cuda')
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable parameters: {n_params:,}")
-    print(f"Save directory: {SAVE_DIR}")
+    print(f"Save directory: {save_dir}")
+
+    # ── Initialise CSV log ─────────────────────────────────────────────
+    csv_path = init_csv_log(save_dir)
+    print(f"Epoch log:      {csv_path}")
 
     # ── Training loop ──────────────────────────────────────────────────
     best_iou         = 0.0
@@ -486,6 +524,8 @@ def run_training():
     }
 
     for epoch in range(EPOCHS):
+        epoch_start = datetime.now()
+
         print(f"\n{'='*60}")
         print(f"Epoch {epoch + 1}/{EPOCHS}")
         print(f"{'='*60}")
@@ -547,6 +587,7 @@ def run_training():
         avg_val_iou   = val_iou_total  / len(val_loader)
         avg_val_dice  = val_dice_total / len(val_loader)
         current_lr    = optimizer.param_groups[0]['lr']
+        epoch_secs    = (datetime.now() - epoch_start).total_seconds()
 
         history['train_loss'].append(avg_train)
         history['val_loss'].append(avg_val_loss)
@@ -560,12 +601,14 @@ def run_training():
         print(f"Val IoU:       {avg_val_iou:.4f}")
         print(f"Val Dice:      {avg_val_dice:.4f}")
         print(f"Learning Rate: {current_lr:.2e}")
+        print(f"Epoch Time:    {epoch_secs:.1f}s")
         print(f"{'─'*60}")
 
         scheduler.step(avg_val_loss)
 
         # ── Checkpoint ──
-        if avg_val_iou > best_iou:
+        is_best = avg_val_iou > best_iou
+        if is_best:
             best_iou         = avg_val_iou
             best_loss        = avg_val_loss
             patience_counter = 0
@@ -588,21 +631,38 @@ def run_training():
                     'lr':             LR,
                     'dropout':        DROPOUT_RATE,
                 }
-            }, os.path.join(SAVE_DIR, "best_model.pth"))
+            }, os.path.join(save_dir, "best_model.pth"))
             print(f"✓ Saved best model (IoU: {best_iou:.4f})")
         else:
             patience_counter += 1
             print(f"✗ No improvement ({patience_counter}/{EARLY_STOP_PATIENCE})")
-            if patience_counter >= EARLY_STOP_PATIENCE:
-                print("\n⚠ Early stopping triggered")
-                break
+
+        # ── Write epoch row to CSV ─────────────────────────────────────
+        append_csv_log(csv_path, {
+            'epoch':               epoch + 1,
+            'timestamp':           datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'train_loss':          round(avg_train,     6),
+            'val_loss':            round(avg_val_loss,  6),
+            'val_iou':             round(avg_val_iou,   6),
+            'val_dice':            round(avg_val_dice,  6),
+            'learning_rate':       f"{current_lr:.2e}",
+            'is_best':             is_best,
+            'best_val_iou_so_far': round(best_iou,      6),
+            'early_stop_counter':  patience_counter,
+            'epoch_duration_sec':  round(epoch_secs,    1),
+        })
+
+        # ── Early stopping ─────────────────────────────────────────────
+        if patience_counter >= EARLY_STOP_PATIENCE:
+            print("\n⚠ Early stopping triggered")
+            break
 
     # ── Save history & plots ───────────────────────────────────────────
-    np.savez(os.path.join(SAVE_DIR, "training_history.npz"), **history)
+    np.savez(os.path.join(save_dir, "training_history.npz"), **history)
 
-    # Dataset info log
-    with open(os.path.join(SAVE_DIR, "run_info.txt"), 'w') as f:
-        f.write(f"Run timestamp:  {_TIMESTAMP}\n")
+    # Run info log
+    with open(os.path.join(save_dir, "run_info.txt"), 'w') as f:
+        f.write(f"Run timestamp:  {timestamp}\n")
         f.write(f"Model type:     Multi-Scale 256³ → fine 128³ + context 256³→128³\n\n")
         f.write(f"DATA SOURCES\n{'='*50}\n")
         for source in DATA_SOURCES:
@@ -624,7 +684,7 @@ def run_training():
         f.write(f"  Best Val Loss:  {best_loss:.4f}\n")
 
     try:
-        plot_training_curves(history, SAVE_DIR)
+        plot_training_curves(history, save_dir)
     except Exception as e:
         print(f"Warning: could not save training curves: {e}")
 
@@ -632,12 +692,12 @@ def run_training():
     print("Training complete!")
     print(f"Best Val IoU:  {best_iou:.4f}")
     print(f"Best Val Loss: {best_loss:.4f}")
-    print(f"Results in:    {SAVE_DIR}")
+    print(f"Results in:    {save_dir}")
     print("=" * 60)
 
 
 # ==========================================
-# 6. PLOTTING
+# 7. PLOTTING
 # ==========================================
 
 def plot_training_curves(history, save_dir):
