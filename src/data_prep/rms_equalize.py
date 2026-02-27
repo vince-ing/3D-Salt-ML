@@ -67,9 +67,9 @@ def apply_scalar_to_segy(input_file, output_file, scalar, chunk_size=10000):
 
 if __name__ == "__main__":
     # We use the ALREADY FILTERED files
-    ref_file = "keathley_filtered_3_37Hz.sgy"
-    target_file_in = "mississippi_filtered_3_37Hz.sgy"
-    target_file_out = "mississippi_filtered_equalized.sgy"
+    ref_file = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\filtering\mississippi_filtered_3_37Hz.sgy"
+    target_file_in = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\filtering\keathley_filtered_3_37Hz.sgy"
+    target_file_out = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\filtering\keathley_filtered_equalized.sgy"
 
     # 1. Calculate RMS for both surveys
     rms_ref = calculate_survey_rms(ref_file, step=1000)

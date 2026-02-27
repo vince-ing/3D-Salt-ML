@@ -6,7 +6,7 @@ import random
 import sys
 
 """
-python processmiss.py 0 1954
+python processcubes.py 0 1954
 py -m processmiss 1954 3908
 py -m processmiss 3908 5862
 """
@@ -14,9 +14,9 @@ py -m processmiss 3908 5862
 # ==========================================
 # CONFIGURATION
 # ==========================================
-SEISMIC_PATH = "raw_seismic_mississippi.sgy"
-LABEL_PATH = "labelmississippi.sgy"
-OUTPUT_DIR = "processed_data/mississippi_filtered/"
+SEISMIC_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\filtering\mississippi_filtered_3_37Hz.sgy"
+LABEL_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\labels\labelmississippi.sgy"
+OUTPUT_DIR = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi256/"
 
 GLOBAL_MEAN = -0.0003
 GLOBAL_STD = 1.1787
@@ -32,7 +32,7 @@ N_INLINES = 5862
 N_CROSSLINES = 5289
 N_SAMPLES = 1081
 
-CHUNK_SIZE = 64
+#CHUNK_SIZE = 64 No chunks, individual .npz files
 
 # ==========================================
 # PARALLEL PROCESSING CONFIGURATION

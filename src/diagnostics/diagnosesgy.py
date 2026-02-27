@@ -2,8 +2,8 @@ import segyio
 import numpy as np
 import matplotlib.pyplot as plt
 
-SEISMIC_PATH = "raw_seismic_mckinley.sgy"
-LABEL_PATH = "labelmckinley.sgy"
+SEISMIC_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\filtering\mississippi_filtered_3_37Hz.sgy"
+LABEL_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\labels\labelmississippi.sgy"
 
 def diagnose_segy():
     """
