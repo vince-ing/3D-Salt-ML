@@ -1,5 +1,7 @@
 To Do
 
+May need to repick a smaller subset higher quality horizon for top and bottom Keathley Canyon
+
 Adjust Keathley spectra to Mississippi
 reduce energy to equalize 
 Normalize cube by cube

@@ -1,0 +1,1 @@
+epoch,timestamp,train_loss,val_loss,val_iou,val_dice,learning_rate,is_best,best_val_iou_so_far,early_stop_counter,epoch_duration_sec
