@@ -19,3 +19,34 @@ Compare synthetic and fine tuning to manual labels (larger uncertainty), or smal
 Compare resnet, unet, transformer (given by Chao)
 
 
+Retrain with boundary aware loss
+replacement for DiceBCELoss
+
+class BoundaryAwareLoss(nn.Module):
+    def __init__(self, pos_weight=2.0, boundary_weight=0.5):
+        super().__init__()
+        self.pos_weight    = pos_weight
+        self.boundary_weight = boundary_weight
+
+    def forward(self, inputs, targets, smooth=1):
+        # Standard Dice + BCE
+        bce = F.binary_cross_entropy_with_logits(
+            inputs, targets,
+            pos_weight=torch.tensor([self.pos_weight], device=inputs.device))
+        prob  = torch.sigmoid(inputs)
+        flat_p, flat_t = prob.view(-1), targets.view(-1)
+        dice_loss = 1 - (2*(flat_p*flat_t).sum()+smooth) / (flat_p.sum()+flat_t.sum()+smooth)
+
+        # Boundary term: penalise wrong predictions near salt edges
+        # Erode and dilate the label to find the boundary zone
+        kernel = torch.ones(1,1,3,3,3, device=targets.device) / 27
+        dilated = (F.conv3d(targets, kernel, padding=1) > 0.1).float()
+        eroded  = (F.conv3d(targets, kernel, padding=1) > 0.9).float()
+        boundary = dilated - eroded   # thin shell around salt surface
+        boundary_loss = F.binary_cross_entropy_with_logits(
+            inputs * boundary, targets * boundary,
+            pos_weight=torch.tensor([self.pos_weight], device=inputs.device))
+
+        return bce + dice_loss + self.boundary_weight * boundary_loss
+
+

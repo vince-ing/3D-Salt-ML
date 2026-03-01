@@ -20,11 +20,11 @@ Single machine:
 # ==========================================
 # CONFIGURATION
 # ==========================================
-SURVEY_NAME  = "mississippi"
+SURVEY_NAME  = "keathleys"
 
-SEISMIC_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\raw\raw_seismic_mississippi.sgy"
-LABEL_PATH   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\labels\labelmississippi.sgy"
-OUTPUT_DIR   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi128/"
+SEISMIC_PATH = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\raw\raw_seismic_keathley.sgy"
+LABEL_PATH   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\labels\labelkeathley.sgy"
+OUTPUT_DIR   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\keathley128/"
 
 # Cube size — all dimensions 128
 CUBE_SIZE = 128         # inline, crossline, and time all 128
@@ -35,9 +35,9 @@ STRIDE_CROSSLINE  = 64
 STRIDE_Z          = 64
 
 # Volume dimensions
-N_INLINES     = 5862
-N_CROSSLINES  = 5289
-N_SAMPLES     = 1081
+N_INLINES     = 5391
+N_CROSSLINES  = 7076
+N_SAMPLES     = 1001
 
 # Train / val / test split boundaries (by inline index)
 # 60% train, 30% val, 10% test
