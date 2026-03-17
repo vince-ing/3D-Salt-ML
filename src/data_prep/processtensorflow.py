@@ -37,17 +37,17 @@ except ImportError:
 SURVEY_NAME = "mississippi"
 SEISMIC_SGY = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\raw\raw_seismic_mississippi.sgy"
 LABEL_SGY   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\labels\labelmississippi_seafloor.sgy"
-OUT_DIR     = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi128x100seafloor"
+OUT_DIR     = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi_100i_128x_128z"
 
-# Independent dimensions for Inline, Crossline, and Depth/Sample
-PATCH_I = 128
-PATCH_X = 128
-PATCH_S = 100
+# Swapped to match the Keras (128, 128, 100) expectation natively
+PATCH_I = 100  # Was 128
+PATCH_X = 128  # Stays 128
+PATCH_S = 128  # Was 100
 
-# Strides (set to 50% overlap to match original script's behavior)
-STRIDE_I = 64
+# Strides adjusted to maintain ~50% overlap for the new sizes
+STRIDE_I = 50
 STRIDE_X = 64
-STRIDE_S = 50
+STRIDE_S = 64
 
 # Keep Probabilities
 KEEP_SALT     = 1.0  # 100%
@@ -272,7 +272,14 @@ def extract_cubes():
                         cat_name = category.split('_')[1] # salt, boundary, rock, empty
                         stats[category] += 1
                         stats[split] += 1
+                        
+                        # Original slice shape: (100, 128, 128) -> (Inline, Crossline, Depth)
                         s_patch = seis_slab[:, x:x+PATCH_X, s:s+PATCH_S]
+                        l_patch = lbl_slab[:, x:x+PATCH_X, s:s+PATCH_S]
+                        
+                        # THE FIX: Transpose to (128, 128, 100) -> (Crossline, Depth, Inline)
+                        s_patch = np.transpose(s_patch, (1, 2, 0))
+                        l_patch = np.transpose(l_patch, (1, 2, 0))
                         
                         # New Naming Convention: mississippi_train_salt_i00128_x03328_s00505.npz
                         filename = f"{SURVEY_NAME}_{split}_{cat_name}_i{i:05d}_x{x:05d}_s{s:05d}.npz"

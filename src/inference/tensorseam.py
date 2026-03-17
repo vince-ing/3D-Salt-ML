@@ -194,23 +194,24 @@ for i, sample_index in enumerate(indices_to_view):
     y_pred = predictions[1][0] 
     y_pred_mask = (y_pred > 0.5).astype(np.float32)
 
-    # Extract 2D slices for plotting
-    seismic_slice = x_sample[0, :, :, slice_idx, 0]
-    true_label_slice = y_true[:, :, slice_idx, 0]
-    pred_label_slice = y_pred_mask[:, :, slice_idx, 0]
+    # Extract 2D slices for plotting and hit 'em with the .T (Transpose)
+    # This flips (Crossline, Depth) to (Depth, Crossline) so it plots horizontally!
+    seismic_slice = x_sample[0, :, :, slice_idx, 0].T
+    true_label_slice = y_true[:, :, slice_idx, 0].T
+    pred_label_slice = y_pred_mask[:, :, slice_idx, 0].T
 
     # Plotting logic for this specific row
     ax_row = axes[i]
     
-    im1 = ax_row[0].imshow(seismic_slice, cmap='gray')
+    im1 = ax_row[0].imshow(seismic_slice, cmap='gray_r', aspect='auto')
     ax_row[0].set_title(f'Sample {sample_index}: Seismic (Slice {slice_idx})')
     fig.colorbar(im1, ax=ax_row[0], fraction=0.046, pad=0.04)
 
-    im2 = ax_row[1].imshow(true_label_slice, cmap='viridis', vmin=0, vmax=1)
+    im2 = ax_row[1].imshow(true_label_slice, cmap='viridis', vmin=0, vmax=1, aspect='auto')
     ax_row[1].set_title(f'Sample {sample_index}: True Label')
     fig.colorbar(im2, ax=ax_row[1], fraction=0.046, pad=0.04)
 
-    im3 = ax_row[2].imshow(pred_label_slice, cmap='viridis', vmin=0, vmax=1)
+    im3 = ax_row[2].imshow(pred_label_slice, cmap='viridis', vmin=0, vmax=1, aspect='auto')
     ax_row[2].set_title(f'Sample {sample_index}: Predicted Label')
     fig.colorbar(im3, ax=ax_row[2], fraction=0.046, pad=0.04)
 

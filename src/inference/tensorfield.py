@@ -145,7 +145,7 @@ print("Model weights loaded successfully!")
 # 3. LOAD & PREPROCESS INDIVIDUAL .NPZ FILES
 # ==========================================
 print("Finding test patches...")
-test_dir = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi128x100seafloor\test"
+test_dir = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi_100i_128x_128z\train"
 
 # Find all .npz files in the test directory
 all_test_files = glob.glob(os.path.join(test_dir, "*.npz"))
@@ -159,7 +159,6 @@ files_to_view = random.sample(all_test_files, num_examples)
 
 print(f"Loading and predicting {num_examples} patches...")
 
-# 1. Pre-calculate all predictions so we don't have to run the model 3 times
 patch_results = []
 for filepath in files_to_view:
     data = np.load(filepath)
@@ -173,60 +172,37 @@ for filepath in files_to_view:
         
     label_patch = (label_patch == 1).astype(np.float32)
 
-    # Standard reshape: (1, 128, 128, 100, 1)
+    # Standard reshape: (1, 128, 128, 100, 1) -> (Batch, Crossline, Depth, Inline, Channel)
     x_sample = np.reshape(seismic_patch, (1, 128, 128, 100, 1))
     y_true = np.reshape(label_patch, (1, 128, 128, 100, 1))
 
-    # =======================================================
-    # 1. THE HACK: SWAP AXES
-    # Swaps Axis 2 (Crossline) and Axis 3 (Depth)
-    # Shape goes from (1, 128, 128, 100, 1) -> (1, 128, 100, 128, 1)
-    # =======================================================
-    x_rotated = np.swapaxes(x_sample, 2, 3) 
-
-    # =======================================================
-    # 2. BYPASS THE KERAS SHAPE CHECKER
-    # The model rigidly demands (128, 128, 100).
-    # We must pad the 100 up to 128, and crop the 128 down to 100.
-    # =======================================================
-    # Pad Axis 2 (currently 100) with 28 zeros at the end
-    x_padded = np.pad(x_rotated, ((0,0), (0,0), (0,28), (0,0), (0,0)), mode='constant') 
-    # Shape is now (1, 128, 128, 128, 1)
-    
-    # Crop Axis 3 (currently 128) down to 100
-    x_ready = x_padded[:, :, :, :100, :] 
-    # Shape is now (1, 128, 128, 100, 1) - Keras is happy!
-
-    # 3. Predict on the rotated/padded data
-    predictions = model.predict(x_ready, verbose=0)
+    # Predict directly on the properly shaped data
+    predictions = model.predict(x_sample, verbose=0)
     
     # Extract the predicted mask (shape is 128, 128, 100, 1)
     y_pred_mask = (predictions[1][0] > 0.5).astype(np.float32)
     
-    # =======================================================
-    # 4. REVERT EVERYTHING FOR PLOTTING
-    # Undo crop -> Undo pad -> Undo swap
-    # =======================================================
-    # Pad axis 2 (currently 100) back to 128
-    y_revert_pad = np.pad(y_pred_mask, ((0,0), (0,0), (0,28), (0,0)), mode='constant')
-    # Crop axis 1 (currently 128) down to 100
-    y_revert_crop = y_revert_pad[:, :100, :, :]
-    # Swap axes 1 and 2 back to original
-    y_final = np.swapaxes(y_revert_crop, 1, 2)
-    
     # Store for plotting (removing batch and channel dimensions)
+    # Stored shape is (128, 128, 100) -> (Crossline, Depth, Inline)
     patch_results.append({
         'filepath': filepath,
         'seismic': x_sample[0, :, :, :, 0],
         'true': y_true[0, :, :, :, 0],
-        'pred': y_final[:, :, :, 0]
+        'pred': y_pred_mask[:, :, :, 0]
     })
 
-# 2. Define the 3 different slicing geometries
+# ==========================================
+# 4. PREDICT & VISUALIZE
+# ==========================================
+
+# 2. Define the 3 slicing geometries for the native (Crossline, Depth, Inline) shape
 geometries = [
-    {'name': 'Map View (Z-Slice Z=50)', 'axis': 2, 'idx': 50},
-    {'name': 'Crossline Profile (Inline-Slice I=64)', 'axis': 0, 'idx': 64},
-    {'name': 'Inline Profile (Crossline-Slice X=64)', 'axis': 1, 'idx': 64}
+    # Axis 1 is Depth (128). Middle is 64.
+    {'name': 'Map View (Z-Slice Z=64)', 'axis': 1, 'idx': 64},
+    # Axis 2 is Inline (100). Middle is 50. 
+    {'name': 'Crossline Profile (Inline-Slice I=50)', 'axis': 2, 'idx': 50},
+    # Axis 0 is Crossline (128). Middle is 64.
+    {'name': 'Inline Profile (Crossline-Slice X=64)', 'axis': 0, 'idx': 64}
 ]
 
 print("Generating the 3 Geometry Figures...")
@@ -249,34 +225,40 @@ for geo in geometries:
             clean_title = f"Seismic\n{filename[:15]}..."
             
         # Extract the correct 2D slice based on the current geometry
-        if geo['axis'] == 2:
-            # Depth Slice (No transpose needed, shape is 128x128)
-            s_slice = p_data['seismic'][:, :, geo['idx']]
-            t_slice = p_data['true'][:, :, geo['idx']]
-            p_slice = p_data['pred'][:, :, geo['idx']]
-        elif geo['axis'] == 0:
-            # Inline Slice (Transpose so Depth/100 is on the Y-axis)
-            s_slice = p_data['seismic'][geo['idx'], :, :].T
-            t_slice = p_data['true'][geo['idx'], :, :].T
-            p_slice = p_data['pred'][geo['idx'], :, :].T
-        elif geo['axis'] == 1:
-            # Crossline Slice (Transpose so Depth/100 is on the Y-axis)
+        # Remembering our base shape is (Crossline, Depth, Inline)
+        if geo['axis'] == 1:
+            # Depth Slice. Data -> (XL, IL). 
+            # We transpose to (IL, XL) just so Inline is on Y-axis for standard map views.
             s_slice = p_data['seismic'][:, geo['idx'], :].T
             t_slice = p_data['true'][:, geo['idx'], :].T
             p_slice = p_data['pred'][:, geo['idx'], :].T
+            
+        elif geo['axis'] == 2:
+            # Inline Slice (Crossline Profile). Data -> (XL, Depth).
+            # Must transpose to (Depth, XL) so Depth is correctly on the Y-axis!
+            s_slice = p_data['seismic'][:, :, geo['idx']].T
+            t_slice = p_data['true'][:, :, geo['idx']].T
+            p_slice = p_data['pred'][:, :, geo['idx']].T
+            
+        elif geo['axis'] == 0:
+            # Crossline Slice (Inline Profile). Data -> (Depth, IL).
+            # Depth is ALREADY the first dimension, so it automatically plots on Y-axis! NO TRANSPOSE needed here.
+            s_slice = p_data['seismic'][geo['idx'], :, :]
+            t_slice = p_data['true'][geo['idx'], :, :]
+            p_slice = p_data['pred'][geo['idx'], :, :]
 
         # Plot Seismic
-        im1 = ax_row[0].imshow(s_slice, cmap='gray')
+        im1 = ax_row[0].imshow(s_slice, cmap='gray', aspect='auto')
         ax_row[0].set_title(clean_title, fontsize=10)
         fig.colorbar(im1, ax=ax_row[0], fraction=0.046, pad=0.04)
 
         # Plot True Label
-        im2 = ax_row[1].imshow(t_slice, cmap='viridis', vmin=0, vmax=1)
+        im2 = ax_row[1].imshow(t_slice, cmap='viridis', vmin=0, vmax=1, aspect='auto')
         ax_row[1].set_title('True Salt Label', fontsize=10)
         fig.colorbar(im2, ax=ax_row[1], fraction=0.046, pad=0.04)
 
         # Plot Predicted Label
-        im3 = ax_row[2].imshow(p_slice, cmap='viridis', vmin=0, vmax=1)
+        im3 = ax_row[2].imshow(p_slice, cmap='viridis', vmin=0, vmax=1, aspect='auto')
         ax_row[2].set_title('Predicted Salt Label', fontsize=10)
         fig.colorbar(im3, ax=ax_row[2], fraction=0.046, pad=0.04)
         
@@ -285,6 +267,5 @@ for geo in geometries:
         ax_row[1].axis('off')
         ax_row[2].axis('off')
 
-    # Apply your working spacing adjustments
     plt.subplots_adjust(hspace=0.6, wspace=0.3, top=0.92, bottom=0.05)
     plt.show()
