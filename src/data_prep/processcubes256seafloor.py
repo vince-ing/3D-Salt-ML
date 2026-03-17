@@ -35,7 +35,7 @@ except ImportError:
 # ============================================================
 # CONFIGURATION
 # ============================================================
-SURVEY_NAME = "mississippi"
+SURVEY_NAME = "keathley"
 SEISMIC_SGY = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\raw\raw_seismic_keathley.sgy"
 LABEL_SGY   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\labels\labelkeathley_seafloor.sgy"
 OUT_DIR     = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\keathley256seafloor"

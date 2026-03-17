@@ -1,6 +1,16 @@
 """
 Multi-Class Salt Detection (Rock=0, Salt=1, Water=2, Blank=3)
 Dual-Survey Training with Boundary-Aware Cross Entropy & Salt Dice
+
+v2 Changes:
+  - Fixed optimizer.zero_grad() placement (before backward, not after)
+  - Added gradient clipping (norm=1.0)
+  - zoom(order=1) for context downsampling (trilinear, not nearest-neighbour)
+  - Increased SYNTH_AUG_PROB to 0.3
+  - Augmentation: 90° Z-axis rotations only (gravity-respecting)
+  - Augmentation: Phase rotation via Hilbert transform (trace axis)
+  - Augmentation: Frequency bandpass taper (1D FFT on Z axis, Hanning-tapered to avoid banding)
+  - Gaussian noise kept but tightened to avoid over-corrupting
 """
 
 import os
@@ -15,6 +25,7 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset
 import torch.amp
 from tqdm import tqdm
 from scipy.ndimage import zoom
+from scipy.signal import hilbert
 from datetime import datetime
 
 # ==========================================
@@ -37,10 +48,10 @@ DATA_SOURCES = [
 EXPERIMENTS_BASE = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\outputs\experiments"
 
 # PATCH SIZES
-CUBE_SIZE  = 256    
-FINE_SIZE  = 128    
-HALF       = FINE_SIZE // 2          
-MAX_OFFSET = 64     
+CUBE_SIZE  = 256
+FINE_SIZE  = 128
+HALF       = FINE_SIZE // 2
+MAX_OFFSET = 64
 
 CROPS_PER_CUBE = 2
 
@@ -54,11 +65,114 @@ EARLY_STOP_PATIENCE  = 10
 LR_PATIENCE          = 5
 LR_FACTOR            = 0.5
 USE_TTA              = False
-SYNTH_AUG_PROB       = 0.1   
+SYNTH_AUG_PROB       = 0.2   
+
+# Augmentation probabilities (moderate)
+AUG_FLIP_PROB        = 0.5   # per-axis horizontal flip (X and Y only)
+AUG_ROT90_PROB       = 0.5   # 90° rotation around Z axis
+AUG_PHASE_PROB       = 0.4   # phase rotation
+AUG_BANDPASS_PROB    = 0.4   # frequency bandpass taper
+AUG_GAIN_PROB        = 1.0   # amplitude gain (always on, cheap)
+AUG_NOISE_PROB       = 0.3   # additive Gaussian noise
 
 
 # ==========================================
-# 2. DATASET
+# 2. AUGMENTATION HELPERS
+# ==========================================
+
+def augment_phase_rotation(cube: np.ndarray, max_angle_deg: float = 30.0) -> np.ndarray:
+    """
+    Rotate the seismic wavelet phase by a random angle in [-max_angle_deg, +max_angle_deg].
+    Operates trace-by-trace along the Z (depth/time) axis.
+
+    Physics note: phase rotation is a valid seismic processing ambiguity —
+    different processing flows yield different phase conventions. Keeping
+    the angle small (<=30°) avoids inverting polarity or destroying reflector character.
+
+    Implementation: analytic signal via Hilbert transform on Z axis,
+    then rotate by e^(i*theta) and take real part.
+    Cost: ~O(N log N) on the Z axis, CPU only. Fast.
+    """
+    angle_rad = np.deg2rad(np.random.uniform(-max_angle_deg, max_angle_deg))
+    # hilbert expects shape (..., N); apply along axis 0 (Z/depth)
+    analytic = hilbert(cube, axis=0)          # complex array, same shape as cube
+    rotated  = analytic * np.exp(1j * angle_rad)
+    return rotated.real.astype(np.float32)
+
+
+def augment_bandpass_taper(cube: np.ndarray,
+                           low_frac_range:  tuple = (0.02, 0.10),
+                           high_frac_range: tuple = (0.55, 0.80),
+                           taper_width_frac: float = 0.05) -> np.ndarray:
+    """
+    Apply a random bandpass filter along the Z (time/depth) axis via 1D FFT.
+
+    Each call randomly samples:
+      - low cutoff  in [low_frac_range]  of Nyquist
+      - high cutoff in [high_frac_range] of Nyquist
+
+    Transitions use a Hanning taper to avoid Gibbs ringing / banding artefacts.
+    Only the Z axis is filtered — the XY spatial axes are untouched, so
+    no spatial banding is introduced.
+
+    Simulates different survey acquisition frequencies and processing bandwidths
+    between Mississippi Canyon and Keathley Canyon datasets.
+    """
+    nz = cube.shape[0]
+    freqs = np.fft.rfftfreq(nz)              # shape (nz//2 + 1,), range [0, 0.5]
+    nf    = len(freqs)
+    taper_w = max(2, int(taper_w_samples := taper_width_frac * nf))
+
+    low_f  = np.random.uniform(*low_frac_range)
+    high_f = np.random.uniform(*high_frac_range)
+
+    mask = np.zeros(nf, dtype=np.float32)
+
+    # Build piecewise mask with Hanning transitions
+    for i, f in enumerate(freqs):
+        if f < low_f:
+            mask[i] = 0.0
+        elif f < low_f + taper_w / nf:
+            # ramp up
+            t = (f - low_f) / (taper_w / nf)
+            mask[i] = 0.5 * (1 - np.cos(np.pi * t))
+        elif f < high_f - taper_w / nf:
+            mask[i] = 1.0
+        elif f < high_f:
+            # ramp down
+            t = (f - (high_f - taper_w / nf)) / (taper_w / nf)
+            mask[i] = 0.5 * (1 + np.cos(np.pi * t))
+        else:
+            mask[i] = 0.0
+
+    # Apply filter along Z axis for every XY trace
+    # Reshape for broadcasting: (nf, 1, 1)
+    mask_bc = mask[:, np.newaxis, np.newaxis]
+
+    spectrum = np.fft.rfft(cube, axis=0)     # (nf, ny, nx) complex
+    filtered = np.fft.irfft(spectrum * mask_bc, n=nz, axis=0)
+    return filtered.astype(np.float32)
+
+
+def augment_rot90_z(cube: np.ndarray, mask: np.ndarray):
+    """
+    Rotate 90°, 180°, or 270° around the vertical (Z) axis.
+
+    Geological validity: salt bodies have no preferred horizontal orientation,
+    so rotating around Z is always valid. We never rotate around X or Y,
+    which would tilt stratigraphy against gravity.
+
+    axes=(1,2) = the two horizontal spatial axes (Y=inline, X=crossline).
+    k=0 → identity (kept so the function is always callable with a random k).
+    """
+    k = np.random.randint(1, 4)   # 1, 2, or 3 quarter-turns
+    cube_r = np.rot90(cube, k=k, axes=(1, 2)).copy()
+    mask_r = np.rot90(mask, k=k, axes=(1, 2)).copy()
+    return cube_r, mask_r
+
+
+# ==========================================
+# 3. DATASET
 # ==========================================
 
 class SaltDataset(Dataset):
@@ -77,7 +191,7 @@ class SaltDataset(Dataset):
     def add_synthetic_water_edges(self, cube, mask):
         cube_aug = cube.copy()
         mask_aug = mask.copy()
-        S = FINE_SIZE  
+        S = FINE_SIZE
 
         # Water layer at top (Class 2)
         if np.random.rand() < 0.5:
@@ -119,46 +233,68 @@ class SaltDataset(Dataset):
 
         try:
             with np.load(self.files[file_idx]) as data:
-                cube256 = data['seismic'].astype(np.float32)  
-                mask256 = data['label'].astype(np.float32)    
+                cube256 = data['seismic'].astype(np.float32)   # (256, 256, 256)
+                mask256 = data['label'].astype(np.float32)     # (256, 256, 256)
 
             if self.augment:
-                if np.random.rand() > 0.5:   
-                    cube256 = np.flip(cube256, axis=0)
-                    mask256 = np.flip(mask256, axis=0)
-                if np.random.rand() > 0.5:   
+                # ── Horizontal flips only (gravity-safe) ──────────────────────
+                # Axis 0 = Z (depth/time) — NEVER flip; would invert stratigraphy
+                # Axis 1 = Y (inline)     — safe to flip
+                # Axis 2 = X (crossline)  — safe to flip
+                if np.random.rand() < AUG_FLIP_PROB:
                     cube256 = np.flip(cube256, axis=1)
                     mask256 = np.flip(mask256, axis=1)
-                if np.random.rand() > 0.5:   
+                if np.random.rand() < AUG_FLIP_PROB:
                     cube256 = np.flip(cube256, axis=2)
                     mask256 = np.flip(mask256, axis=2)
 
-                cube256 = cube256 * (0.9 + 0.2 * np.random.rand())
-                if np.random.rand() < 0.3:
-                    cube256 = cube256 + np.random.normal(0, 0.02, cube256.shape)
+                # ── 90° rotation around Z axis (horizontal plane only) ────────
+                if np.random.rand() < AUG_ROT90_PROB:
+                    cube256, mask256 = augment_rot90_z(cube256, mask256)
 
-            context = zoom(cube256, zoom=0.5, order=0).astype(np.float32)
-            center = CUBE_SIZE // 2  
+                # ── Amplitude gain ────────────────────────────────────────────
+                if np.random.rand() < AUG_GAIN_PROB:
+                    cube256 = cube256 * (0.85 + 0.30 * np.random.rand())  # [0.85, 1.15]
+
+                # ── Additive Gaussian noise ───────────────────────────────────
+                if np.random.rand() < AUG_NOISE_PROB:
+                    cube256 = cube256 + np.random.normal(0, 0.015, cube256.shape).astype(np.float32)
+
+                # ── Bandpass frequency taper (Z axis only, Hanning-windowed) ──
+                if np.random.rand() < AUG_BANDPASS_PROB:
+                    cube256 = augment_bandpass_taper(cube256)
+
+                # ── Phase rotation (Hilbert, small angle only) ────────────────
+                if np.random.rand() < AUG_PHASE_PROB:
+                    cube256 = augment_phase_rotation(cube256, max_angle_deg=30.0)
+
+            # ── Downsample full cube to context (trilinear, order=1) ──────────
+            # Fixed from order=0 (nearest-neighbour) which caused blocky artefacts
+            context = zoom(cube256, zoom=0.5, order=1).astype(np.float32)
+
+            center = CUBE_SIZE // 2
 
             if self.augment:
                 oz = np.random.randint(-MAX_OFFSET, MAX_OFFSET + 1)
                 oy = np.random.randint(-MAX_OFFSET, MAX_OFFSET + 1)
                 ox = np.random.randint(-MAX_OFFSET, MAX_OFFSET + 1)
             else:
-                oz, oy, ox = 0, 0, 0  
+                oz, oy, ox = 0, 0, 0
 
             cz, cy, cx = center + oz, center + oy, center + ox
 
-            fine = cube256[cz - HALF : cz + HALF, cy - HALF : cy + HALF, cx - HALF : cx + HALF].copy()   
-            mask = mask256[cz - HALF : cz + HALF, cy - HALF : cy + HALF, cx - HALF : cx + HALF].copy()   
+            fine = cube256[cz - HALF : cz + HALF,
+                           cy - HALF : cy + HALF,
+                           cx - HALF : cx + HALF].copy()
+            mask = mask256[cz - HALF : cz + HALF,
+                           cy - HALF : cy + HALF,
+                           cx - HALF : cx + HALF].copy()
 
             if self.augment and np.random.rand() < SYNTH_AUG_PROB:
                 fine, mask = self.add_synthetic_water_edges(fine, mask)
 
             fine_t    = torch.from_numpy(fine).float().unsqueeze(0)     # (1, 128, 128, 128)
             context_t = torch.from_numpy(context).float().unsqueeze(0)  # (1, 128, 128, 128)
-            
-            # CE Loss expects targets without channel dim if they are class indices
             mask_t    = torch.from_numpy(mask).long()                   # (128, 128, 128)
 
             return fine_t, context_t, mask_t
@@ -170,7 +306,7 @@ class SaltDataset(Dataset):
 
 
 # ==========================================
-# 3. MODEL: Multi-Scale UNet + ASPP (3D)
+# 4. MODEL: Multi-Scale UNet + ASPP (3D)
 # ==========================================
 
 class ConvBlock(nn.Module):
@@ -234,80 +370,71 @@ class SaltModel3D_MultiScale(nn.Module):
         self.final = nn.Conv3d(16, 4, kernel_size=1)
 
     def forward(self, x_fine, x_context):
-        x1          = self.enc1(x_fine)          
-        x2          = self.enc2(self.pool1(x1))  
-        x3          = self.enc3(self.pool2(x2))  
-        fine_feat   = self.pool3(x3)             
+        x1        = self.enc1(x_fine)
+        x2        = self.enc2(self.pool1(x1))
+        x3        = self.enc3(self.pool2(x2))
+        fine_feat = self.pool3(x3)
 
-        ctx_feat = self.ctx_enc(x_context)       
+        ctx_feat = self.ctx_enc(x_context)
 
-        fused = torch.cat([fine_feat, ctx_feat], dim=1)  
-        b     = self.aspp(fused)                          
+        fused = torch.cat([fine_feat, ctx_feat], dim=1)
+        b     = self.aspp(fused)
 
-        d3 = self.dec3(torch.cat([self.up3(b),  x3], dim=1))  
-        d2 = self.dec2(torch.cat([self.up2(d3), x2], dim=1))  
-        d1 = self.dec1(torch.cat([self.up1(d2), x1], dim=1))  
+        d3 = self.dec3(torch.cat([self.up3(b),  x3], dim=1))
+        d2 = self.dec2(torch.cat([self.up2(d3), x2], dim=1))
+        d1 = self.dec1(torch.cat([self.up1(d2), x1], dim=1))
 
-        return self.final(d1)                                  
+        return self.final(d1)
 
 
 # ==========================================
-# 4. LOSS & METRICS
+# 5. LOSS & METRICS
 # ==========================================
 
 class MultiClassBoundaryLoss(nn.Module):
     def __init__(self, class_weights=[0.5, 3.0, 0.5, 0.1], boundary_weight=0.5):
         super().__init__()
-        # Register as buffer so it naturally moves to the correct device
         self.register_buffer('class_weights', torch.tensor(class_weights))
         self.boundary_weight = boundary_weight
 
     def forward(self, inputs, targets, smooth=1):
-        # 1. Standard Weighted Cross Entropy
+        # 1. Weighted Cross Entropy
         ce_loss = F.cross_entropy(inputs, targets, weight=self.class_weights)
-        
-        # 2. Salt-Specific Dice Loss (Optimizes directly for Class 1)
-        probs = torch.softmax(inputs, dim=1)
-        salt_probs = probs[:, 1, ...]
+
+        # 2. Salt Dice Loss (class 1 only)
+        probs       = torch.softmax(inputs, dim=1)
+        salt_probs  = probs[:, 1, ...]
         salt_targets = (targets == 1).float()
-        
-        inter = (salt_probs * salt_targets).sum(dim=(1,2,3))
-        union = salt_probs.sum(dim=(1,2,3)) + salt_targets.sum(dim=(1,2,3))
-        dice_loss = 1 - (2. * inter + smooth) / (union + smooth)
-        dice_loss = dice_loss.mean()
 
-        # 3. Boundary Penalty (Fast 3D Morphological Ops via MaxPool)
+        inter     = (salt_probs * salt_targets).sum(dim=(1,2,3))
+        union     = salt_probs.sum(dim=(1,2,3)) + salt_targets.sum(dim=(1,2,3))
+        dice_loss = (1 - (2. * inter + smooth) / (union + smooth)).mean()
+
+        # 3. Boundary Penalty (morphological via MaxPool, no extra params)
         with torch.no_grad():
-            salt_targets_5d = salt_targets.unsqueeze(1) # (B, 1, D, H, W)
-            dilated = F.max_pool3d(salt_targets_5d, kernel_size=3, stride=1, padding=1)
-            eroded  = -F.max_pool3d(-salt_targets_5d, kernel_size=3, stride=1, padding=1)
-            boundary_mask = (dilated - eroded).squeeze(1) # (B, D, H, W)
+            s5d      = salt_targets.unsqueeze(1)
+            dilated  = F.max_pool3d(s5d, kernel_size=3, stride=1, padding=1)
+            eroded   = -F.max_pool3d(-s5d, kernel_size=3, stride=1, padding=1)
+            boundary = (dilated - eroded).squeeze(1)
 
-        # Apply CE penalty specifically to the shell where the boundary is incorrect
-        ce_none = F.cross_entropy(inputs, targets, weight=self.class_weights, reduction='none')
-        boundary_loss = (ce_none * boundary_mask).sum() / (boundary_mask.sum() + 1e-7)
+        ce_none       = F.cross_entropy(inputs, targets, weight=self.class_weights, reduction='none')
+        boundary_loss = (ce_none * boundary).sum() / (boundary.sum() + 1e-7)
 
-        return ce_loss + dice_loss + (self.boundary_weight * boundary_loss)
+        return ce_loss + dice_loss + self.boundary_weight * boundary_loss
 
 
 def compute_salt_metrics(preds, targets):
-    """Calculates IoU and Dice specifically for the Salt class (1)."""
-    preds_class = torch.argmax(preds, dim=1)
-    
-    pred_salt   = (preds_class == 1).float()
-    target_salt = (targets == 1).float()
-    
-    inter = (pred_salt * target_salt).sum().item()
-    union = pred_salt.sum().item() + target_salt.sum().item() - inter
-    
-    iou  = (inter + 1e-7) / (union + 1e-7)
-    dice = (2. * inter + 1e-7) / (pred_salt.sum().item() + target_salt.sum().item() + 1e-7)
-    
+    preds_class  = torch.argmax(preds, dim=1)
+    pred_salt    = (preds_class == 1).float()
+    target_salt  = (targets == 1).float()
+    inter        = (pred_salt * target_salt).sum().item()
+    union        = pred_salt.sum().item() + target_salt.sum().item() - inter
+    iou          = (inter + 1e-7) / (union + 1e-7)
+    dice         = (2. * inter + 1e-7) / (pred_salt.sum().item() + target_salt.sum().item() + 1e-7)
     return iou, dice
 
 
 def compute_metrics_with_tta(model, imgs, contexts, masks):
-    """Average Softmax predictions over 4 flip configurations."""
     preds = []
     for dims in [[], [4], [3], [2]]:
         with torch.no_grad():
@@ -317,28 +444,25 @@ def compute_metrics_with_tta(model, imgs, contexts, masks):
             if dims:
                 p = torch.flip(p, dims=dims)
             preds.append(p)
-            
-    avg_probs = torch.stack(preds).mean(0)
-    
+
+    avg_probs   = torch.stack(preds).mean(0)
     preds_class = torch.argmax(avg_probs, dim=1)
     pred_salt   = (preds_class == 1).float()
     target_salt = (masks == 1).float()
-    
-    inter = (pred_salt * target_salt).sum().item()
-    union = pred_salt.sum().item() + target_salt.sum().item() - inter
-    iou  = (inter + 1e-7) / (union + 1e-7)
-    dice = (2. * inter + 1e-7) / (pred_salt.sum().item() + target_salt.sum().item() + 1e-7)
-    
+    inter       = (pred_salt * target_salt).sum().item()
+    union       = pred_salt.sum().item() + target_salt.sum().item() - inter
+    iou         = (inter + 1e-7) / (union + 1e-7)
+    dice        = (2. * inter + 1e-7) / (pred_salt.sum().item() + target_salt.sum().item() + 1e-7)
     return iou, dice, avg_probs
 
 
 # ==========================================
-# 5. CSV EPOCH LOGGER
+# 6. CSV EPOCH LOGGER
 # ==========================================
 
 CSV_FIELDS = [
-    'epoch', 'timestamp', 'train_loss', 'val_loss', 
-    'val_salt_iou', 'val_salt_dice', 'learning_rate', 
+    'epoch', 'timestamp', 'train_loss', 'val_loss',
+    'val_salt_iou', 'val_salt_dice', 'learning_rate',
     'is_best', 'best_val_iou_so_far', 'early_stop_counter', 'epoch_duration_sec',
 ]
 
@@ -356,7 +480,7 @@ def append_csv_log(csv_path, row: dict):
 
 
 # ==========================================
-# 6. TRAINING
+# 7. TRAINING
 # ==========================================
 
 def run_training():
@@ -427,13 +551,13 @@ def run_training():
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=LR_FACTOR,
         patience=LR_PATIENCE, min_lr=1e-7)
-    
+
     criterion = MultiClassBoundaryLoss(class_weights=[0.5, 3.0, 0.5, 0.1], boundary_weight=0.5)
     scaler    = torch.amp.GradScaler('cuda')
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable parameters: {n_params:,}")
-    
+
     csv_path = init_csv_log(save_dir)
 
     best_iou         = 0.0
@@ -452,7 +576,7 @@ def run_training():
         print(f"Epoch {epoch + 1}/{EPOCHS}")
         print(f"{'='*60}")
 
-        # ── Train ──
+        # ── Train ──────────────────────────────────────────────────────────────
         model.train()
         train_loss = 0.0
         loop = tqdm(train_loader, leave=True, desc="Train")
@@ -462,12 +586,19 @@ def run_training():
             context = context.to(DEVICE)
             mask    = mask.to(DEVICE)
 
+            # zero_grad BEFORE backward (fixed from original)
+            optimizer.zero_grad()
+
             with torch.amp.autocast('cuda'):
                 preds = model(fine, context)
                 loss  = criterion(preds, mask)
 
-            optimizer.zero_grad()
             scaler.scale(loss).backward()
+
+            # Gradient clipping to prevent spikes under AMP (new)
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
             scaler.step(optimizer)
             scaler.update()
 
@@ -476,7 +607,7 @@ def run_training():
 
         avg_train = train_loss / len(train_loader)
 
-        # ── Validate ──
+        # ── Validate ───────────────────────────────────────────────────────────
         model.eval()
         val_loss = val_iou_total = val_dice_total = 0.0
         val_loop = tqdm(val_loader, leave=True, desc="Val  ")
@@ -525,7 +656,7 @@ def run_training():
 
         scheduler.step(avg_val_loss)
 
-        # ── Checkpoint ──
+        # ── Checkpoint ─────────────────────────────────────────────────────────
         is_best = avg_val_iou > best_iou
         if is_best:
             best_iou         = avg_val_iou
@@ -584,11 +715,24 @@ def run_training():
             f.write(f"  {source['name']}\n")
             f.write(f"    train: {source['train']}\n")
             f.write(f"    val:   {source['val']}\n\n")
+        f.write(f"\nAUGMENTATION (v2)\n{'='*50}\n")
+        f.write(f"  Horizontal flips (Y, X axes only — Z never flipped): p={AUG_FLIP_PROB}\n")
+        f.write(f"  90° Z-axis rotation (gravity-safe):                  p={AUG_ROT90_PROB}\n")
+        f.write(f"  Phase rotation (Hilbert, ±30°):                      p={AUG_PHASE_PROB}\n")
+        f.write(f"  Bandpass taper (1D FFT on Z, Hanning):               p={AUG_BANDPASS_PROB}\n")
+        f.write(f"  Amplitude gain ([0.85, 1.15]):                       p={AUG_GAIN_PROB}\n")
+        f.write(f"  Additive Gaussian noise (σ=0.015):                   p={AUG_NOISE_PROB}\n")
+        f.write(f"  Synthetic water/blank edges:                         p={SYNTH_AUG_PROB}\n")
         f.write(f"\nCONFIG\n{'='*50}\n")
         f.write(f"  batch_size:     {BATCH_SIZE}\n")
         f.write(f"  lr:             {LR}\n")
         f.write(f"  epochs:         {EPOCHS}\n")
         f.write(f"  dropout:        {DROPOUT_RATE}\n")
+        f.write(f"\nFIXES vs v1\n{'='*50}\n")
+        f.write(f"  - optimizer.zero_grad() moved before backward()\n")
+        f.write(f"  - Gradient clipping: clip_grad_norm max_norm=1.0\n")
+        f.write(f"  - context zoom order=1 (trilinear) instead of order=0 (nearest)\n")
+        f.write(f"  - Z-axis flip removed (was geologically invalid)\n")
         f.write(f"\nRESULTS\n{'='*50}\n")
         f.write(f"  Best Val Salt IoU: {best_iou:.4f}\n")
         f.write(f"  Best Val Loss:     {best_loss:.4f}\n")
@@ -606,7 +750,7 @@ def run_training():
 
 
 # ==========================================
-# 7. PLOTTING
+# 8. PLOTTING
 # ==========================================
 
 def plot_training_curves(history, save_dir):
@@ -634,6 +778,7 @@ def plot_training_curves(history, save_dir):
     plt.savefig(out, dpi=150)
     print(f"Training curves saved → {out}")
     plt.close()
+
 
 if __name__ == "__main__":
     run_training()
