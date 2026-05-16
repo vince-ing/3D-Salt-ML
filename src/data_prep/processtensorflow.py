@@ -14,7 +14,7 @@ Features:
       and Block boundaries (I) to eliminate wasted data gaps.
     - Rolling Slab Buffer: Prevents Out-of-Memory crashes on 130GB+ volumes.
     - Visualizations: Generates correctly oriented Map View and Middle Crossline View.
-    - Zero-Padded Naming: 'mississippi_train_salt_i00128_x03328_s00505.npz'
+    - Zero-Padded Naming: 'keathley_train_salt_i00128_x03328_s00505.npz'
 """
 
 import os
@@ -34,10 +34,10 @@ except ImportError:
 # ============================================================
 # CONFIGURATION
 # ============================================================
-SURVEY_NAME = "mississippi"
-SEISMIC_SGY = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\raw\raw_seismic_mississippi.sgy"
-LABEL_SGY   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\labels\labelmississippi_seafloor.sgy"
-OUT_DIR     = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\mississippi_100i_128x_128z"
+SURVEY_NAME = "keathley"
+SEISMIC_SGY = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\raw\raw_seismic_keathley.sgy"
+LABEL_SGY   = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\labels\labelkeathley_seafloor.sgy"
+OUT_DIR     = r"G:\Working\Students\Undergraduate\For_Vince\Petrel\SaltDetection\data\processed\keathley_100i_128x_128z"
 
 # Swapped to match the Keras (128, 128, 100) expectation natively
 PATCH_I = 100  # Was 128
@@ -281,7 +281,7 @@ def extract_cubes():
                         s_patch = np.transpose(s_patch, (1, 2, 0))
                         l_patch = np.transpose(l_patch, (1, 2, 0))
                         
-                        # New Naming Convention: mississippi_train_salt_i00128_x03328_s00505.npz
+                        # New Naming Convention: keathley_train_salt_i00128_x03328_s00505.npz
                         filename = f"{SURVEY_NAME}_{split}_{cat_name}_i{i:05d}_x{x:05d}_s{s:05d}.npz"
                         filepath = os.path.join(OUT_DIR, split, filename)
                         

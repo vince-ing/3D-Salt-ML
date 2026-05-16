@@ -1,0 +1,2 @@
+epoch,timestamp,train_loss,val_loss,val_salt_iou,val_salt_dice,learning_rate,is_best,best_val_iou_so_far,early_stop_counter,epoch_duration_sec
+1,2026-03-18_0431,3.551365,3.181404,0.024271,0.042174,1.00e-04,True,0.024271,0,1925.1

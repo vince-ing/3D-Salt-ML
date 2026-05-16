@@ -248,7 +248,7 @@ for geo in geometries:
             p_slice = p_data['pred'][geo['idx'], :, :]
 
         # Plot Seismic
-        im1 = ax_row[0].imshow(s_slice, cmap='gray', aspect='auto')
+        im1 = ax_row[0].imshow(s_slice, cmap='gray_r', aspect='auto')
         ax_row[0].set_title(clean_title, fontsize=10)
         fig.colorbar(im1, ax=ax_row[0], fraction=0.046, pad=0.04)
 

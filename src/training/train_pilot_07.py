@@ -428,18 +428,28 @@ class SaltModel3D_MultiScale(nn.Module):
 # 5. LOSS & METRICS
 # ==========================================
 
-class MultiClassBoundaryLoss(nn.Module):
-    def __init__(self, class_weights=[0.5, 3.0, 0.5, 0.1], boundary_weight=0.5):
+class FocalBoundaryLoss(nn.Module):
+    def __init__(self, class_weights=[0.5, 3.0, 0.5, 0.1], boundary_weight=0.5, gamma=2.0):
         super().__init__()
         self.register_buffer('class_weights', torch.tensor(class_weights))
         self.boundary_weight = boundary_weight
+        self.gamma = gamma
 
     def forward(self, inputs, targets, smooth=1):
-        # 1. Weighted Cross Entropy
-        ce_loss = F.cross_entropy(inputs, targets, weight=self.class_weights)
+        # 1. Base Cross Entropy (Unreduced)
+        # This computes -alpha * log(p_t) for every voxel
+        ce_none = F.cross_entropy(inputs, targets, weight=self.class_weights, reduction='none')
 
-        # 2. Salt Dice Loss (class 1 only)
-        probs       = torch.softmax(inputs, dim=1)
+        # 2. Extract p_t (the predicted probability of the true target class)
+        probs = torch.softmax(inputs, dim=1)
+        # Gather probabilities along the class dimension (dim=1) matching the targets
+        pt = torch.gather(probs, 1, targets.unsqueeze(1)).squeeze(1)
+
+        # 3. Apply Focal Modulation: (1 - p_t)^gamma
+        focal_none = ((1 - pt) ** self.gamma) * ce_none
+        focal_loss = focal_none.mean()
+
+        # 4. Salt Dice Loss (class 1 only)
         salt_probs  = probs[:, 1, ...]
         salt_targets = (targets == 1).float()
 
@@ -447,17 +457,17 @@ class MultiClassBoundaryLoss(nn.Module):
         union     = salt_probs.sum(dim=(1,2,3)) + salt_targets.sum(dim=(1,2,3))
         dice_loss = (1 - (2. * inter + smooth) / (union + smooth)).mean()
 
-        # 3. Boundary Penalty (morphological via MaxPool, no extra params)
+        # 5. Boundary Penalty (morphological via MaxPool)
         with torch.no_grad():
             s5d      = salt_targets.unsqueeze(1)
             dilated  = F.max_pool3d(s5d, kernel_size=3, stride=1, padding=1)
             eroded   = -F.max_pool3d(-s5d, kernel_size=3, stride=1, padding=1)
             boundary = (dilated - eroded).squeeze(1)
 
-        ce_none       = F.cross_entropy(inputs, targets, weight=self.class_weights, reduction='none')
-        boundary_loss = (ce_none * boundary).sum() / (boundary.sum() + 1e-7)
+        # The boundary penalty now also benefits from the focal down-weighting!
+        boundary_loss = (focal_none * boundary).sum() / (boundary.sum() + 1e-7)
 
-        return ce_loss + dice_loss + self.boundary_weight * boundary_loss
+        return focal_loss + dice_loss + self.boundary_weight * boundary_loss
 
 
 def compute_salt_metrics(preds, targets):
@@ -592,7 +602,7 @@ def run_training():
         optimizer, mode='min', factor=LR_FACTOR,
         patience=LR_PATIENCE, min_lr=1e-7)
 
-    criterion = MultiClassBoundaryLoss(class_weights=[0.5, 3.0, 0.5, 0.1], boundary_weight=0.5).to(DEVICE)
+    criterion = FocalBoundaryLoss(class_weights=[0.5, 3.0, 0.5, 0.1], boundary_weight=0.5, gamma=2.0).to(DEVICE)
     scaler    = torch.amp.GradScaler('cuda')
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
